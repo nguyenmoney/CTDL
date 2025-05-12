@@ -74,7 +74,6 @@ typedef struct {
 // === Cau truc Benh Nhan ===
 typedef struct {
     int maBenhNhan;             // Ma so duy nhat
-    char cccd[13];              // So Can cuoc cong dan
     char bhyt[16];              // Ma Bao hiem y te
     char soDienThoai[15];       // So dien thoai
     char ten[100];              // Ho va Ten
@@ -89,7 +88,7 @@ typedef struct {
 // === Cau truc Lan Kham ===
 typedef struct {
     int maLanKham;              // Ma so duy nhat cho lan kham nay
-    int maBenhNhan;             // Lien ket den BenhNhan
+    int maDinhDanh;             // Lien ket den BenhNhan
     char maBacSi[20];           // Lien ket den BacSi (KHONG LUU TEN O DAY)
     char maKhoaPhong[20];       // Noi thuc hien kham (Lien ket voi KhoaPhong, tuy chon)
     time_t ngayGioKham;         // Ngay va gio thuc te kham benh
@@ -107,7 +106,7 @@ typedef struct {
 // === Cau truc Lich Hen ===
 typedef struct {
     int maLichHen;              // Ma duy nhat cua lich hen
-    int maBenhNhan;             // Lien ket den BenhNhan
+    int maDinhDanh;             // Lien ket den BenhNhan
     char maBacSi[20];           // Lien ket den BacSi (neu hen dich danh)
     char maKhoaPhong[20];       // Lien ket den KhoaPhong (neu hen theo khoa)
     time_t ngayGioHen;          // Thoi gian duoc hen
