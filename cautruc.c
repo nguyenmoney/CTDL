@@ -3,6 +3,15 @@
 
 #include <time.h> // Can cho kieu time_t
 
+// Enum Trang Thai Lan Kham
+typedef enum {
+    LK_DANG_CHO,         // Mới đăng ký, đang trong hàng đợi chờ gọi
+    LK_DANG_KHAM,        // Đã được gọi vào, đang được bác sĩ khám
+    LK_DA_HOAN_THANH,    // Đã khám xong, cập nhật xong thông tin
+    LK_DA_HUY,           // Bệnh nhân hoặc hệ thống hủy lượt khám/lịch hẹn
+    LK_DA_LO             // Lượt đăng ký của ngày trước nhưng không khám (missed)
+} TrangThaiLanKham;
+
 // --- Cau truc Date ---
 typedef struct {
     int ngay;
@@ -101,6 +110,7 @@ typedef struct {
     MucDoUuTien mucDoUuTien;    // Muc do uu tien cua lan kham nay
     time_t gioDangKyThanhCong;  // Thoi diem dang ky thanh cong lan kham nay
     int coDonThuoc;             // Co bao co ke don thuoc khong (1=co, 0=khong)
+    TrangThaiLanKham trangThai; // TRUONG MOI: Trang thai hien tai cua lan kham
 } LanKham;
 
 // === Cau truc Lich Hen ===
