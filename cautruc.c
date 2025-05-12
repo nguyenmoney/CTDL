@@ -73,7 +73,7 @@ typedef struct {
 
 // === Cau truc Benh Nhan ===
 typedef struct {
-    int maBenhNhan;             // Ma so duy nhat
+    int maDinhDanh;             // Ma so duy nhat
     char bhyt[16];              // Ma Bao hiem y te
     char soDienThoai[15];       // So dien thoai
     char ten[100];              // Ho va Ten
