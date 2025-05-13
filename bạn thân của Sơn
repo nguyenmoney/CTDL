@@ -1,0 +1,2432 @@
+/**
+ * Hệ thống quản lý khám bệnh (CDS)
+ * 
+ * Mô tả: Xây dựng một hệ thống giúp quản lý danh sách bệnh nhân theo mức độ ưu tiên (cấp cứu,
+ * thông thường, tái khám, v.v.). Xử lý - gọi bệnh nhân vào khám theo mức độ ưu tiên, nếu có
+ * nhiều bệnh nhân có cùng mức độ ưu tiên, ưu tiên bệnh nhân đến sớm hơn. Cập nhật trạng thái
+ * khi đã khám xong. Có thể đưa ra danh sách bệnh nhân, tìm kiếm thông tin bệnh nhân theo các
+ * tiêu chí.
+ */
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <ctype.h>
+
+// === 1. CÁC ĐỊNH NGHĨA CẤU TRÚC DỮ LIỆU ===
+
+// Kích thước các bảng băm
+#define KICH_THUOC_BANG_BAM_BENH_NHAN 997
+#define KICH_THUOC_BANG_BAM_LAN_KHAM 997
+
+// Enum Trang Thai Lan Kham
+typedef enum {
+    LK_DANG_CHO,         // Moi dang ky, dang trong hang doi cho goi
+    LK_DANG_KHAM,        // Da duoc goi vao, dang duoc bac si kham
+    LK_DA_HOAN_THANH,    // Da kham xong, cap nhat xong thong tin
+    LK_DA_HUY,           // Benh nhan hoac he thong huy luot kham/lich hen
+    LK_DA_LO             // Luot dang ky cua ngay truoc nhung khong kham (missed)
+} TrangThaiLanKham;
+
+// --- Cau truc Date ---
+typedef struct {
+    int ngay;
+    int thang;
+    int nam;
+} Date;
+
+// --- Enum Muc Do Uu Tien ---
+typedef enum {
+    CAP_CUU = 0,    // Muc uu tien cao nhat
+    KHAN_CAP,
+    THONG_THUONG,
+    TAI_KHAM,
+    UU_TIEN_KHAC,
+    SO_MUC_UU_TIEN // De de quan ly so luong muc uu tien
+} MucDoUuTien;
+
+// --- Enum Gioi Tinh ---
+typedef enum {
+    GT_NAM,
+    GT_NU,
+    GT_KHAC
+} GioiTinh;
+
+// --- Enum Trang Thai Lich Hen ---
+typedef enum {
+    HEN_MOI_DAT,
+    HEN_DA_XAC_NHAN,
+    HEN_DA_HUY,
+    HEN_DA_HOAN_THANH,
+    HEN_KHONG_DEN
+} TrangThaiLichHen;
+
+// --- Enum Vai Tro Nguoi Dung ---
+typedef enum {
+    VAI_TRO_QUAN_TRI,
+    VAI_TRO_BAC_SI,
+    VAI_TRO_LE_TAN,
+    VAI_TRO_DUOC_SI, // Neu co quan ly thuoc chi tiet
+    VAI_TRO_KHAC
+} VaiTroNguoiDung;
+
+// --- Enum Trang Thai Tai Khoan ---
+typedef enum {
+    TK_HOAT_DONG,
+    TK_KHOA,
+    TK_CHUA_KICH_HOAT
+} TrangThaiTaiKhoan;
+
+// === Cau truc Khoa/Phong Kham ===
+typedef struct {
+    char maKhoaPhong[20];       // Ma duy nhat cua Khoa/Phong
+    char tenKhoaPhong[100];     // Ten Khoa/Phong
+    char viTri[100];            // Vi tri (vi du: Tang 2, Khu A)
+    char moTa[200];             // Mo ta them ve Khoa/Phong
+} KhoaPhong;
+
+// === Cau truc Bac Si ===
+typedef struct {
+    char maBacSi[20];           // Ma so duy nhat cua bac si
+    char tenBacSi[100];         // Ho va ten bac si
+    char chuyenKhoa[100];       // Chuyen khoa chinh
+    char soDienThoai[15];       // So dien thoai lien he
+    char email[100];            // Email
+    char maKhoaPhong[20];       // Ma Khoa/Phong bac si lam viec (Lien ket voi KhoaPhong)
+    // Co the them: Bang cap, lich lam viec co dinh,...
+} BacSi;
+
+// === Cau truc Benh Nhan ===
+typedef struct {
+    int maDinhDanh;             // Ma so duy nhat
+    char bhyt[16];              // Ma Bao hiem y te
+    char soDienThoai[15];       // So dien thoai
+    char ten[100];              // Ho va Ten
+    Date ngaySinh;              // Ngay sinh
+    int tuoi;                   // Tuoi (luu tru truc tiep)
+    GioiTinh gioiTinh;          // Gioi tinh (them vao cho day du)
+    char diaChi[200];           // Dia chi (them vao cho day du)
+    char tieuSuBenhLy[1000];    // Tom tat tieu su benh ly
+    time_t ngayTaoHoSo;         // Ngay tao ho so trong he thong
+} BenhNhan;
+
+// === Cau truc Lan Kham ===
+typedef struct {
+    int maLanKham;              // Ma so duy nhat cho lan kham nay
+    int maDinhDanh;             // Lien ket den BenhNhan
+    char maBacSi[20];           // Lien ket den BacSi (KHONG LUU TEN O DAY)
+    char maKhoaPhong[20];       // Noi thuc hien kham (Lien ket voi KhoaPhong, tuy chon)
+    time_t ngayGioKham;         // Ngay va gio thuc te kham benh
+    char lyDoKham[500];         // Ly do den kham
+    char chanDoan[500];         // Chan doan cua bac si
+    char phuongPhapDieuTri[1000]; // Phuong phap dieu tri, thuoc men...
+    char ghiChuBacSi[500];      // Ghi chu them
+    Date ngayTaiKham;           // Ngay hen tai kham
+    int coLichTaiKham;          // Co bao co lich tai kham khong (1 = co, 0 = khong)
+    MucDoUuTien mucDoUuTien;    // Muc do uu tien cua lan kham nay
+    time_t gioDangKyThanhCong;  // Thoi diem dang ky thanh cong lan kham nay
+    int coDonThuoc;             // Co bao co ke don thuoc khong (1=co, 0=khong)
+    TrangThaiLanKham trangThai; // TRUONG MOI: Trang thai hien tai cua lan kham
+} LanKham;
+
+// === Cau truc Lich Hen ===
+typedef struct {
+    int maLichHen;              // Ma duy nhat cua lich hen
+    int maDinhDanh;             // Lien ket den BenhNhan
+    char maBacSi[20];           // Lien ket den BacSi (neu hen dich danh)
+    char maKhoaPhong[20];       // Lien ket den KhoaPhong (neu hen theo khoa)
+    time_t ngayGioHen;          // Thoi gian duoc hen
+    char lyDoHen[200];          // Ly do hen (kham moi, tai kham...)
+    TrangThaiLichHen trangThai; // Trang thai cua lich hen
+    char ghiChu[300];           // Ghi chu them cho lich hen
+} LichHen;
+
+// === Cấu trúc node chứa bệnh nhân ===
+typedef struct NodeBenhNhan {
+    BenhNhan benhNhan;             // Thông tin bệnh nhân
+    struct NodeBenhNhan* next;     // Con trỏ đến node tiếp theo
+} NodeBenhNhan;
+
+// === Cấu trúc danh sách liên kết bệnh nhân ===
+typedef struct {
+    NodeBenhNhan* head;            // Đầu danh sách liên kết
+    int count;                     // Số lượng bệnh nhân trong danh sách
+} DanhSachBenhNhan;
+
+// === Cấu trúc quản lý bệnh nhân (bảng băm) ===
+typedef struct {
+    DanhSachBenhNhan bangBam[KICH_THUOC_BANG_BAM_BENH_NHAN]; // Bảng băm
+    int tongSoBenhNhan;            // Tổng số bệnh nhân
+    int maDinhDanhTiepTheo;        // Mã định danh cho bệnh nhân tiếp theo
+} QuanLyBenhNhan;
+
+// === Cấu trúc node chứa thông tin lần khám ===
+typedef struct NodeLanKhamLS {
+    LanKham lanKham;               // Thông tin lần khám
+    struct NodeLanKhamLS* next;    // Con trỏ đến node tiếp theo
+} NodeLanKhamLS;
+
+// === Cấu trúc danh sách liên kết lần khám ===
+typedef struct {
+    NodeLanKhamLS* head;           // Đầu danh sách liên kết
+    int count;                     // Số lượng lần khám trong danh sách
+} DanhSachLanKham;
+
+// === Cấu trúc quản lý lần khám (bảng băm) ===
+typedef struct {
+    DanhSachLanKham bangBam[KICH_THUOC_BANG_BAM_LAN_KHAM]; // Bảng băm
+    int tongSoLanKham;             // Tổng số lần khám
+    int maLanKhamTiepTheo;         // Mã lần khám tiếp theo
+} QuanLyLanKham;
+
+// === Cấu trúc node trong hàng đợi ===
+typedef struct NodeHangDoi {
+    LanKham* lanKham;              // Con trỏ đến thông tin lần khám
+    time_t thoiGianVaoHangDoi;     // Thời gian vào hàng đợi
+    struct NodeHangDoi* next;      // Con trỏ đến node tiếp theo
+} NodeHangDoi;
+
+// === Cấu trúc hàng đợi cho một mức ưu tiên ===
+typedef struct {
+    NodeHangDoi* head;             // Đầu hàng đợi
+    NodeHangDoi* tail;             // Cuối hàng đợi
+    int count;                     // Số lượng bệnh nhân trong hàng đợi
+} HangDoiUuTien;
+
+// === Cấu trúc quản lý tất cả các hàng đợi ===
+typedef struct {
+    HangDoiUuTien danhSachUuTien[SO_MUC_UU_TIEN]; // Mảng hàng đợi theo mức ưu tiên
+    int tongSoBenhNhan;            // Tổng số bệnh nhân đang chờ
+} QuanLyHangDoi;
+
+// === Cấu trúc quản lý bác sĩ ===
+typedef struct {
+    BacSi* danhSach;              // Mảng động các bác sĩ
+    int soLuong;                  // Số lượng bác sĩ
+    int kichThuoc;                // Kích thước đã cấp phát
+} QuanLyBacSi;
+
+// === Cấu trúc quản lý khoa phòng ===
+typedef struct {
+    KhoaPhong* danhSach;          // Mảng động các khoa phòng
+    int soLuong;                  // Số lượng khoa phòng
+    int kichThuoc;                // Kích thước đã cấp phát
+} QuanLyKhoaPhong;
+
+// === CẤU TRÚC TỔNG THỂ HỆ THỐNG ===
+typedef struct {
+    // Các component quản lý dữ liệu
+    QuanLyBenhNhan dsBenhNhan;     // Quản lý thông tin bệnh nhân
+    QuanLyLanKham dsLanKham;       // Quản lý thông tin lần khám
+    QuanLyHangDoi hangDoiKham;     // Quản lý hàng đợi chờ khám
+    QuanLyBacSi dsBacSi;           // Quản lý thông tin bác sĩ
+    QuanLyKhoaPhong dsKhoaPhong;   // Quản lý thông tin khoa phòng
+} HeThongQuanLyKhamBenh;
+
+// === 2. KHU VỰC KHAI BÁO NGUYÊN MẪU HÀM ===
+
+// --- Các hàm tiện ích ---
+int hamBamBenhNhan(int maDinhDanh);
+int hamBamLanKham(int maLanKham);
+int tinhTuoi(Date ngaySinh);
+int kiemTraNgaySinhHopLe(Date ngaySinh);
+char* layTenMucUuTien(MucDoUuTien mucUuTien);
+char* layTenTrangThai(TrangThaiLanKham trangThai);
+
+// --- Các hàm xử lý CSV ---
+int nhapBenhNhanTuCSV(QuanLyBenhNhan* quanLy, const char* tenFile);
+int nhapBacSiTuCSV(QuanLyBacSi* quanLy, const char* tenFile);
+int nhapKhoaPhongTuCSV(QuanLyKhoaPhong* quanLy, const char* tenFile);
+int nhapLanKhamTuCSV(QuanLyLanKham* quanLy, const char* tenFile);
+int xuatBenhNhanRaCSV(QuanLyBenhNhan* quanLy, const char* tenFile);
+int xuatLanKhamRaCSV(QuanLyLanKham* quanLy, const char* tenFile);
+int xuatHangDoiRaCSV(QuanLyHangDoi* quanLy, QuanLyBenhNhan* dsBenhNhan, const char* tenFile);
+int xuatThongKeRaCSV(HeThongQuanLyKhamBenh* heThong, const char* tenFile);
+
+// --- Các hàm quản lý bệnh nhân ---
+void khoiTaoQuanLyBenhNhan(QuanLyBenhNhan* quanLy);
+int themBenhNhan(QuanLyBenhNhan* quanLy, BenhNhan benhNhan);
+BenhNhan* timBenhNhanTheoMa(QuanLyBenhNhan* quanLy, int maDinhDanh);
+BenhNhan* timBenhNhanTheoSDT(QuanLyBenhNhan* quanLy, const char* soDienThoai);
+BenhNhan* timBenhNhanTheoBHYT(QuanLyBenhNhan* quanLy, const char* soBHYT);
+NodeBenhNhan* timDanhSachBenhNhanTheoTen(QuanLyBenhNhan* quanLy, const char* ten, int* soLuongKetQua);
+int capNhatThongTinBenhNhan(QuanLyBenhNhan* quanLy, BenhNhan benhNhanCapNhat);
+int xoaBenhNhan(QuanLyBenhNhan* quanLy, int maDinhDanh);
+int getTongSoBenhNhan(QuanLyBenhNhan* quanLy);
+NodeBenhNhan* layToanBoDanhSachBenhNhan(QuanLyBenhNhan* quanLy);
+void giaiPhongDanhSachBenhNhan(QuanLyBenhNhan* quanLy);
+
+// --- Các hàm quản lý lần khám ---
+void khoiTaoQuanLyLanKham(QuanLyLanKham* quanLy);
+int themLanKham(QuanLyLanKham* quanLy, LanKham lanKham);
+LanKham* timLanKhamTheoMa(QuanLyLanKham* quanLy, int maLanKham);
+NodeLanKhamLS* timLanKhamTheoBenhNhan(QuanLyLanKham* quanLy, int maDinhDanh, int* soLuongKetQua);
+NodeLanKhamLS* timLanKhamTheoBacSi(QuanLyLanKham* quanLy, const char* maBacSi, int* soLuongKetQua);
+NodeLanKhamLS* timLanKhamTheoNgay(QuanLyLanKham* quanLy, time_t tuNgay, time_t denNgay, int* soLuongKetQua);
+int capNhatLanKham(QuanLyLanKham* quanLy, LanKham lanKhamCapNhat);
+int capNhatTrangThaiLanKham(QuanLyLanKham* quanLy, int maLanKham, TrangThaiLanKham trangThaiMoi);
+void giaiPhongDanhSachLanKham(QuanLyLanKham* quanLy);
+
+// --- Các hàm quản lý hàng đợi chờ khám ---
+void khoiTaoQuanLyHangDoi(QuanLyHangDoi* quanLy);
+int themVaoHangDoi(QuanLyHangDoi* quanLy, LanKham* lanKham);
+LanKham* layBenhNhanUuTienCaoNhat(QuanLyHangDoi* quanLy);
+int timViTriTrongHangDoi(QuanLyHangDoi* quanLy, int maDinhDanh, MucDoUuTien* mucUuTien, int* viTriTrongMucUuTien);
+int capNhatUuTienTrongHangDoi(QuanLyHangDoi* quanLy, int maDinhDanh, MucDoUuTien mucUuTienMoi);
+int xoaKhoiHangDoi(QuanLyHangDoi* quanLy, int maDinhDanh);
+int getSoLuongTheoUuTien(QuanLyHangDoi* quanLy, MucDoUuTien mucUuTien);
+int getTongSoBenhNhanCho(QuanLyHangDoi* quanLy);
+void giaiPhongHangDoi(QuanLyHangDoi* quanLy);
+
+// --- Các hàm quản lý bác sĩ và khoa phòng ---
+void khoiTaoQuanLyBacSi(QuanLyBacSi* quanLy);
+void khoiTaoQuanLyKhoaPhong(QuanLyKhoaPhong* quanLy);
+int themBacSi(QuanLyBacSi* quanLy, BacSi bacSi);
+int themKhoaPhong(QuanLyKhoaPhong* quanLy, KhoaPhong khoaPhong);
+BacSi* timBacSiTheoMa(QuanLyBacSi* quanLy, const char* maBacSi);
+KhoaPhong* timKhoaPhongTheoMa(QuanLyKhoaPhong* quanLy, const char* maKhoaPhong);
+void giaiPhongQuanLyBacSi(QuanLyBacSi* quanLy);
+void giaiPhongQuanLyKhoaPhong(QuanLyKhoaPhong* quanLy);
+
+// --- Các hàm chính của hệ thống ---
+void khoiTaoHeThong(HeThongQuanLyKhamBenh* heThong);
+int dangKyKhamBenh(HeThongQuanLyKhamBenh* heThong, int maDinhDanh, MucDoUuTien mucUuTien, const char* lyDoKham, const char* maKhoaPhong);
+LanKham* goiBenhNhanTiepTheo(HeThongQuanLyKhamBenh* heThong);
+int capNhatKetQuaKham(HeThongQuanLyKhamBenh* heThong, int maLanKham, const char* maBacSi, const char* chanDoan, const char* phuongPhapDieuTri);
+BenhNhan* timKiemBenhNhan(HeThongQuanLyKhamBenh* heThong, const char* tieuChi, const char* giaTri);
+NodeLanKhamLS* xemLichSuKham(HeThongQuanLyKhamBenh* heThong, int maDinhDanh, int* soLuongKetQua);
+void giaiPhongHeThong(HeThongQuanLyKhamBenh* heThong);
+
+// === 3. TRIỂN KHAI CÁC HÀM TIỆN ÍCH ===
+
+// Hàm băm cho bệnh nhân
+int hamBamBenhNhan(int maDinhDanh) {
+    return maDinhDanh % KICH_THUOC_BANG_BAM_BENH_NHAN;
+}
+
+// Hàm băm cho lần khám
+int hamBamLanKham(int maLanKham) {
+    return maLanKham % KICH_THUOC_BANG_BAM_LAN_KHAM;
+}
+
+// Tính tuổi từ ngày sinh
+int tinhTuoi(Date ngaySinh) {
+    // Lấy ngày hiện tại
+    time_t now = time(NULL);
+    struct tm* tmNow = localtime(&now);
+    int namHienTai = tmNow->tm_year + 1900;
+    int thangHienTai = tmNow->tm_mon + 1;
+    int ngayHienTai = tmNow->tm_mday;
+    
+    // Tính tuổi
+    int tuoi = namHienTai - ngaySinh.nam;
+    
+    // Kiểm tra nếu chưa đến sinh nhật năm nay
+    if (thangHienTai < ngaySinh.thang || 
+        (thangHienTai == ngaySinh.thang && ngayHienTai < ngaySinh.ngay)) {
+        tuoi--;
+    }
+    
+    return tuoi;
+}
+
+// Kiểm tra tính hợp lệ của ngày sinh
+int kiemTraNgaySinhHopLe(Date ngaySinh) {
+    // Kiểm tra năm
+    if (ngaySinh.nam < 1900 || ngaySinh.nam > 2100) {
+        return 0;
+    }
+    
+    // Kiểm tra tháng
+    if (ngaySinh.thang < 1 || ngaySinh.thang > 12) {
+        return 0;
+    }
+    
+    // Kiểm tra ngày
+    int soNgayTrongThang;
+    
+    switch (ngaySinh.thang) {
+        case 2: // Tháng 2
+            if ((ngaySinh.nam % 4 == 0 && ngaySinh.nam % 100 != 0) || ngaySinh.nam % 400 == 0) {
+                soNgayTrongThang = 29; // Năm nhuận
+            } else {
+                soNgayTrongThang = 28; // Năm không nhuận
+            }
+            break;
+        case 4: case 6: case 9: case 11: // Tháng 4, 6, 9, 11
+            soNgayTrongThang = 30;
+            break;
+        default: // Các tháng còn lại
+            soNgayTrongThang = 31;
+    }
+    
+    if (ngaySinh.ngay < 1 || ngaySinh.ngay > soNgayTrongThang) {
+        return 0;
+    }
+    
+    return 1;
+}
+
+// Lấy tên mức ưu tiên
+char* layTenMucUuTien(MucDoUuTien mucUuTien) {
+    switch (mucUuTien) {
+        case CAP_CUU:
+            return "Cap cuu";
+        case KHAN_CAP:
+            return "Khan cap";
+        case THONG_THUONG:
+            return "Thong thuong";
+        case TAI_KHAM:
+            return "Tai kham";
+        case UU_TIEN_KHAC:
+            return "Uu tien khac";
+        default:
+            return "Khong xac dinh";
+    }
+}
+
+// Lấy tên trạng thái lần khám
+char* layTenTrangThai(TrangThaiLanKham trangThai) {
+    switch (trangThai) {
+        case LK_DANG_CHO:
+            return "Dang cho";
+        case LK_DANG_KHAM:
+            return "Dang kham";
+        case LK_DA_HOAN_THANH:
+            return "Da hoan thanh";
+        case LK_DA_HUY:
+            return "Da huy";
+        case LK_DA_LO:
+            return "Da lo hen";
+        default:
+            return "Khong xac dinh";
+    }
+}
+
+// === 4. TRIỂN KHAI CÁC HÀM QUẢN LÝ BỆNH NHÂN ===
+
+// Khởi tạo quản lý bệnh nhân
+void khoiTaoQuanLyBenhNhan(QuanLyBenhNhan* quanLy) {
+    quanLy->tongSoBenhNhan = 0;
+    quanLy->maDinhDanhTiepTheo = 1000; // Bắt đầu từ 1000
+    
+    // Khởi tạo các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_BENH_NHAN; i++) {
+        quanLy->bangBam[i].head = NULL;
+        quanLy->bangBam[i].count = 0;
+    }
+}
+
+// Thêm bệnh nhân mới vào hệ thống
+int themBenhNhan(QuanLyBenhNhan* quanLy, BenhNhan benhNhanMoi) {
+    // Gán mã định danh mới nếu chưa có
+    if (benhNhanMoi.maDinhDanh <= 0) {
+        benhNhanMoi.maDinhDanh = quanLy->maDinhDanhTiepTheo++;
+    }
+    
+    // Kiểm tra xem bệnh nhân đã tồn tại chưa
+    if (timBenhNhanTheoMa(quanLy, benhNhanMoi.maDinhDanh) != NULL) {
+        return 0; // Bệnh nhân đã tồn tại
+    }
+    
+    // Tạo node mới
+    NodeBenhNhan* nodeNew = (NodeBenhNhan*)malloc(sizeof(NodeBenhNhan));
+    if (nodeNew == NULL) {
+        return -1; // Lỗi cấp phát bộ nhớ
+    }
+    
+    nodeNew->benhNhan = benhNhanMoi;
+    nodeNew->next = NULL;
+    
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamBenhNhan(benhNhanMoi.maDinhDanh);
+    
+    // Thêm vào đầu danh sách tại vị trí băm
+    nodeNew->next = quanLy->bangBam[viTriBam].head;
+    quanLy->bangBam[viTriBam].head = nodeNew;
+    
+    // Cập nhật số lượng
+    quanLy->bangBam[viTriBam].count++;
+    quanLy->tongSoBenhNhan++;
+    
+    return benhNhanMoi.maDinhDanh;
+}
+
+// Tìm kiếm bệnh nhân theo mã định danh
+BenhNhan* timBenhNhanTheoMa(QuanLyBenhNhan* quanLy, int maDinhDanh) {
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamBenhNhan(maDinhDanh);
+    
+    // Tìm kiếm trong danh sách tại vị trí băm
+    NodeBenhNhan* current = quanLy->bangBam[viTriBam].head;
+    
+    while (current != NULL) {
+        if (current->benhNhan.maDinhDanh == maDinhDanh) {
+            return &(current->benhNhan);
+        }
+        current = current->next;
+    }
+    
+    return NULL; // Không tìm thấy
+}
+
+// Tìm kiếm bệnh nhân theo số điện thoại
+BenhNhan* timBenhNhanTheoSDT(QuanLyBenhNhan* quanLy, const char* soDienThoai) {
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_BENH_NHAN; i++) {
+        NodeBenhNhan* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            if (strcmp(current->benhNhan.soDienThoai, soDienThoai) == 0) {
+                return &(current->benhNhan);
+            }
+            current = current->next;
+        }
+    }
+    
+    return NULL; // Không tìm thấy
+}
+
+// Tìm kiếm bệnh nhân theo số BHYT
+BenhNhan* timBenhNhanTheoBHYT(QuanLyBenhNhan* quanLy, const char* soBHYT) {
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_BENH_NHAN; i++) {
+        NodeBenhNhan* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            if (strcmp(current->benhNhan.bhyt, soBHYT) == 0) {
+                return &(current->benhNhan);
+            }
+            current = current->next;
+        }
+    }
+    
+    return NULL; // Không tìm thấy
+}
+
+// Tìm kiếm bệnh nhân theo tên (có thể có nhiều kết quả)
+NodeBenhNhan* timDanhSachBenhNhanTheoTen(QuanLyBenhNhan* quanLy, const char* ten, int* soLuongKetQua) {
+    NodeBenhNhan* danhSachKetQua = NULL;
+    NodeBenhNhan* tailKetQua = NULL;
+    *soLuongKetQua = 0;
+    
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_BENH_NHAN; i++) {
+        NodeBenhNhan* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            // Tìm kiếm không phân biệt hoa thường
+            char tenLowercase[100];
+            char tenBenhNhanLowercase[100];
+            
+            // Chuyển đổi sang chữ thường
+            strcpy(tenLowercase, ten);
+            strcpy(tenBenhNhanLowercase, current->benhNhan.ten);
+            
+            for (int j = 0; tenLowercase[j]; j++) {
+                tenLowercase[j] = tolower(tenLowercase[j]);
+            }
+            
+            for (int j = 0; tenBenhNhanLowercase[j]; j++) {
+                tenBenhNhanLowercase[j] = tolower(tenBenhNhanLowercase[j]);
+            }
+            
+            // So sánh tên (tìm kiếm tên có chứa chuỗi tìm kiếm)
+            if (strstr(tenBenhNhanLowercase, tenLowercase) != NULL) {
+                // Tạo node mới để thêm vào danh sách kết quả
+                NodeBenhNhan* nodeNew = (NodeBenhNhan*)malloc(sizeof(NodeBenhNhan));
+                if (nodeNew == NULL) {
+                    // Lỗi cấp phát bộ nhớ, giải phóng danh sách đã tạo
+                    while (danhSachKetQua != NULL) {
+                        NodeBenhNhan* temp = danhSachKetQua;
+                        danhSachKetQua = danhSachKetQua->next;
+                        free(temp);
+                    }
+                    *soLuongKetQua = 0;
+                    return NULL;
+                }
+                
+                nodeNew->benhNhan = current->benhNhan;
+                nodeNew->next = NULL;
+                
+                // Thêm vào danh sách kết quả
+                if (danhSachKetQua == NULL) {
+                    danhSachKetQua = nodeNew;
+                    tailKetQua = nodeNew;
+                } else {
+                    tailKetQua->next = nodeNew;
+                    tailKetQua = nodeNew;
+                }
+                
+                (*soLuongKetQua)++;
+            }
+            
+            current = current->next;
+        }
+    }
+    
+    return danhSachKetQua;
+}
+
+// Cập nhật thông tin bệnh nhân
+int capNhatThongTinBenhNhan(QuanLyBenhNhan* quanLy, BenhNhan benhNhanCapNhat) {
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamBenhNhan(benhNhanCapNhat.maDinhDanh);
+    
+    // Tìm kiếm trong danh sách tại vị trí băm
+    NodeBenhNhan* current = quanLy->bangBam[viTriBam].head;
+    
+    while (current != NULL) {
+        if (current->benhNhan.maDinhDanh == benhNhanCapNhat.maDinhDanh) {
+            // Giữ nguyên ngày tạo hồ sơ và mã định danh
+            time_t ngayTaoHoSoGoc = current->benhNhan.ngayTaoHoSo;
+            benhNhanCapNhat.ngayTaoHoSo = ngayTaoHoSoGoc;
+            
+            // Cập nhật thông tin
+            current->benhNhan = benhNhanCapNhat;
+            return 1; // Cập nhật thành công
+        }
+        current = current->next;
+    }
+    
+    return 0; // Không tìm thấy bệnh nhân
+}
+
+// Xóa bệnh nhân khỏi hệ thống
+int xoaBenhNhan(QuanLyBenhNhan* quanLy, int maDinhDanh) {
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamBenhNhan(maDinhDanh);
+    
+    // Tìm kiếm trong danh sách tại vị trí băm
+    NodeBenhNhan* current = quanLy->bangBam[viTriBam].head;
+    NodeBenhNhan* prev = NULL;
+    
+    while (current != NULL) {
+        if (current->benhNhan.maDinhDanh == maDinhDanh) {
+            // Xóa node
+            if (prev == NULL) {
+                // Node đầu tiên
+                quanLy->bangBam[viTriBam].head = current->next;
+            } else {
+                // Node ở giữa hoặc cuối
+                prev->next = current->next;
+            }
+            
+            // Cập nhật số lượng
+            quanLy->bangBam[viTriBam].count--;
+            quanLy->tongSoBenhNhan--;
+            
+            // Giải phóng node
+            free(current);
+            
+            return 1; // Xóa thành công
+        }
+        
+        prev = current;
+        current = current->next;
+    }
+    
+    return 0; // Không tìm thấy bệnh nhân
+}
+
+// Lấy tổng số bệnh nhân
+int getTongSoBenhNhan(QuanLyBenhNhan* quanLy) {
+    return quanLy->tongSoBenhNhan;
+}
+
+// Lấy toàn bộ danh sách bệnh nhân
+NodeBenhNhan* layToanBoDanhSachBenhNhan(QuanLyBenhNhan* quanLy) {
+    NodeBenhNhan* danhSachKetQua = NULL;
+    NodeBenhNhan* tailKetQua = NULL;
+    
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_BENH_NHAN; i++) {
+        NodeBenhNhan* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            // Tạo node mới để thêm vào danh sách kết quả
+            NodeBenhNhan* nodeNew = (NodeBenhNhan*)malloc(sizeof(NodeBenhNhan));
+            if (nodeNew == NULL) {
+                // Lỗi cấp phát bộ nhớ, giải phóng danh sách đã tạo
+                while (danhSachKetQua != NULL) {
+                    NodeBenhNhan* temp = danhSachKetQua;
+                    danhSachKetQua = danhSachKetQua->next;
+                    free(temp);
+                }
+                return NULL;
+            }
+            
+            nodeNew->benhNhan = current->benhNhan;
+            nodeNew->next = NULL;
+            
+            // Thêm vào danh sách kết quả
+            if (danhSachKetQua == NULL) {
+                danhSachKetQua = nodeNew;
+                tailKetQua = nodeNew;
+            } else {
+                tailKetQua->next = nodeNew;
+                tailKetQua = nodeNew;
+            }
+            
+            current = current->next;
+        }
+    }
+    
+    return danhSachKetQua;
+}
+
+// Giải phóng danh sách bệnh nhân
+void giaiPhongDanhSachBenhNhan(QuanLyBenhNhan* quanLy) {
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_BENH_NHAN; i++) {
+        NodeBenhNhan* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            NodeBenhNhan* temp = current;
+            current = current->next;
+            free(temp);
+        }
+        
+        quanLy->bangBam[i].head = NULL;
+        quanLy->bangBam[i].count = 0;
+    }
+    
+    quanLy->tongSoBenhNhan = 0;
+}
+
+// === 5. TRIỂN KHAI CÁC HÀM QUẢN LÝ LẦN KHÁM ===
+
+// Khởi tạo quản lý lần khám
+void khoiTaoQuanLyLanKham(QuanLyLanKham* quanLy) {
+    quanLy->tongSoLanKham = 0;
+    quanLy->maLanKhamTiepTheo = 10000; // Bắt đầu từ 10000
+    
+    // Khởi tạo các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        quanLy->bangBam[i].head = NULL;
+        quanLy->bangBam[i].count = 0;
+    }
+}
+
+// Thêm lần khám mới
+int themLanKham(QuanLyLanKham* quanLy, LanKham lanKham) {
+    // Gán mã lần khám mới nếu chưa có
+    if (lanKham.maLanKham <= 0) {
+        lanKham.maLanKham = quanLy->maLanKhamTiepTheo++;
+    }
+    
+    // Kiểm tra xem lần khám đã tồn tại chưa
+    if (timLanKhamTheoMa(quanLy, lanKham.maLanKham) != NULL) {
+        return 0; // Lần khám đã tồn tại
+    }
+    
+    // Tạo node mới
+    NodeLanKhamLS* nodeNew = (NodeLanKhamLS*)malloc(sizeof(NodeLanKhamLS));
+    if (nodeNew == NULL) {
+        return -1; // Lỗi cấp phát bộ nhớ
+    }
+    
+    nodeNew->lanKham = lanKham;
+    nodeNew->next = NULL;
+    
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamLanKham(lanKham.maLanKham);
+    
+    // Thêm vào đầu danh sách tại vị trí băm
+    nodeNew->next = quanLy->bangBam[viTriBam].head;
+    quanLy->bangBam[viTriBam].head = nodeNew;
+    
+    // Cập nhật số lượng
+    quanLy->bangBam[viTriBam].count++;
+    quanLy->tongSoLanKham++;
+    
+    return lanKham.maLanKham;
+}
+
+// Tìm kiếm lần khám theo mã
+LanKham* timLanKhamTheoMa(QuanLyLanKham* quanLy, int maLanKham) {
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamLanKham(maLanKham);
+    
+    // Tìm kiếm trong danh sách tại vị trí băm
+    NodeLanKhamLS* current = quanLy->bangBam[viTriBam].head;
+    
+    while (current != NULL) {
+        if (current->lanKham.maLanKham == maLanKham) {
+            return &(current->lanKham);
+        }
+        current = current->next;
+    }
+    
+    return NULL; // Không tìm thấy
+}
+
+// Tìm kiếm các lần khám của bệnh nhân
+NodeLanKhamLS* timLanKhamTheoBenhNhan(QuanLyLanKham* quanLy, int maDinhDanh, int* soLuongKetQua) {
+    NodeLanKhamLS* danhSachKetQua = NULL;
+    NodeLanKhamLS* tailKetQua = NULL;
+    *soLuongKetQua = 0;
+    
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        NodeLanKhamLS* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            if (current->lanKham.maDinhDanh == maDinhDanh) {
+                // Tạo node mới để thêm vào danh sách kết quả
+                NodeLanKhamLS* nodeNew = (NodeLanKhamLS*)malloc(sizeof(NodeLanKhamLS));
+                if (nodeNew == NULL) {
+                    // Lỗi cấp phát bộ nhớ, giải phóng danh sách đã tạo
+                    while (danhSachKetQua != NULL) {
+                        NodeLanKhamLS* temp = danhSachKetQua;
+                        danhSachKetQua = danhSachKetQua->next;
+                        free(temp);
+                    }
+                    *soLuongKetQua = 0;
+                    return NULL;
+                }
+                
+                nodeNew->lanKham = current->lanKham;
+                nodeNew->next = NULL;
+                
+                // Thêm vào danh sách kết quả
+                if (danhSachKetQua == NULL) {
+                    danhSachKetQua = nodeNew;
+                    tailKetQua = nodeNew;
+                } else {
+                    tailKetQua->next = nodeNew;
+                    tailKetQua = nodeNew;
+                }
+                
+                (*soLuongKetQua)++;
+            }
+            
+            current = current->next;
+        }
+    }
+    
+    return danhSachKetQua;
+}
+
+// Tìm kiếm các lần khám của bác sĩ
+NodeLanKhamLS* timLanKhamTheoBacSi(QuanLyLanKham* quanLy, const char* maBacSi, int* soLuongKetQua) {
+    NodeLanKhamLS* danhSachKetQua = NULL;
+    NodeLanKhamLS* tailKetQua = NULL;
+    *soLuongKetQua = 0;
+    
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        NodeLanKhamLS* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            if (strcmp(current->lanKham.maBacSi, maBacSi) == 0) {
+                // Tạo node mới để thêm vào danh sách kết quả
+                NodeLanKhamLS* nodeNew = (NodeLanKhamLS*)malloc(sizeof(NodeLanKhamLS));
+                if (nodeNew == NULL) {
+                    // Lỗi cấp phát bộ nhớ, giải phóng danh sách đã tạo
+                    while (danhSachKetQua != NULL) {
+                        NodeLanKhamLS* temp = danhSachKetQua;
+                        danhSachKetQua = danhSachKetQua->next;
+                        free(temp);
+                    }
+                    *soLuongKetQua = 0;
+                    return NULL;
+                }
+                
+                nodeNew->lanKham = current->lanKham;
+                nodeNew->next = NULL;
+                
+                // Thêm vào danh sách kết quả
+                if (danhSachKetQua == NULL) {
+                    danhSachKetQua = nodeNew;
+                    tailKetQua = nodeNew;
+                } else {
+                    tailKetQua->next = nodeNew;
+                    tailKetQua = nodeNew;
+                }
+                
+                (*soLuongKetQua)++;
+            }
+            
+            current = current->next;
+        }
+    }
+    
+    return danhSachKetQua;
+}
+
+// Tìm kiếm các lần khám trong khung thời gian
+NodeLanKhamLS* timLanKhamTheoNgay(QuanLyLanKham* quanLy, time_t tuNgay, time_t denNgay, int* soLuongKetQua) {
+    NodeLanKhamLS* danhSachKetQua = NULL;
+    NodeLanKhamLS* tailKetQua = NULL;
+    *soLuongKetQua = 0;
+    
+    // Duyệt qua tất cả các danh sách trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        NodeLanKhamLS* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            if (current->lanKham.ngayGioKham >= tuNgay && current->lanKham.ngayGioKham <= denNgay) {
+                // Tạo node mới để thêm vào danh sách kết quả
+                NodeLanKhamLS* nodeNew = (NodeLanKhamLS*)malloc(sizeof(NodeLanKhamLS));
+                if (nodeNew == NULL) {
+                    // Lỗi cấp phát bộ nhớ, giải phóng danh sách đã tạo
+                    while (danhSachKetQua != NULL) {
+                        NodeLanKhamLS* temp = danhSachKetQua;
+                        danhSachKetQua = danhSachKetQua->next;
+                        free(temp);
+                    }
+                    *soLuongKetQua = 0;
+                    return NULL;
+                }
+                
+                nodeNew->lanKham = current->lanKham;
+                nodeNew->next = NULL;
+                
+                // Thêm vào danh sách kết quả
+                if (danhSachKetQua == NULL) {
+                    danhSachKetQua = nodeNew;
+                    tailKetQua = nodeNew;
+                } else {
+                    tailKetQua->next = nodeNew;
+                    tailKetQua = nodeNew;
+                }
+                
+                (*soLuongKetQua)++;
+            }
+            
+            current = current->next;
+        }
+    }
+    
+    return danhSachKetQua;
+}
+
+// Cập nhật thông tin lần khám
+int capNhatLanKham(QuanLyLanKham* quanLy, LanKham lanKhamCapNhat) {
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamLanKham(lanKhamCapNhat.maLanKham);
+    
+    // Tìm kiếm trong danh sách tại vị trí băm
+    NodeLanKhamLS* current = quanLy->bangBam[viTriBam].head;
+    
+    while (current != NULL) {
+        if (current->lanKham.maLanKham == lanKhamCapNhat.maLanKham) {
+            // Cập nhật thông tin
+            current->lanKham = lanKhamCapNhat;
+            return 1; // Cập nhật thành công
+        }
+        current = current->next;
+    }
+    
+    return 0; // Không tìm thấy lần khám
+}
+
+// Cập nhật trạng thái lần khám
+int capNhatTrangThaiLanKham(QuanLyLanKham* quanLy, int maLanKham, TrangThaiLanKham trangThaiMoi) {
+    // Tính vị trí trong bảng băm
+    int viTriBam = hamBamLanKham(maLanKham);
+    
+    // Tìm kiếm trong danh sách tại vị trí băm
+    NodeLanKhamLS* current = quanLy->bangBam[viTriBam].head;
+    
+    while (current != NULL) {
+        if (current->lanKham.maLanKham == maLanKham) {
+            // Cập nhật trạng thái
+            current->lanKham.trangThai = trangThaiMoi;
+            return 1; // Cập nhật thành công
+        }
+        current = current->next;
+    }
+    
+    return 0; // Không tìm thấy lần khám
+}
+
+// Giải phóng danh sách lần khám
+void giaiPhongDanhSachLanKham(QuanLyLanKham* quanLy) {
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        NodeLanKhamLS* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            NodeLanKhamLS* temp = current;
+            current = current->next;
+            free(temp);
+        }
+        
+        quanLy->bangBam[i].head = NULL;
+        quanLy->bangBam[i].count = 0;
+    }
+    
+    quanLy->tongSoLanKham = 0;
+}
+
+// === 6. TRIỂN KHAI CÁC HÀM QUẢN LÝ HÀNG ĐỢI CHỜ KHÁM ===
+
+// Khởi tạo quản lý hàng đợi
+void khoiTaoQuanLyHangDoi(QuanLyHangDoi* quanLy) {
+    quanLy->tongSoBenhNhan = 0;
+    
+    // Khởi tạo các hàng đợi theo mức ưu tiên
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        quanLy->danhSachUuTien[i].head = NULL;
+        quanLy->danhSachUuTien[i].tail = NULL;
+        quanLy->danhSachUuTien[i].count = 0;
+    }
+}
+
+// Thêm lần khám vào hàng đợi chờ
+int themVaoHangDoi(QuanLyHangDoi* quanLy, LanKham* lanKham) {
+    // Chỉ thêm nếu trạng thái là ĐANG CHỜ
+    if (lanKham->trangThai != LK_DANG_CHO) {
+        return 0;
+    }
+    
+    // Lấy mức ưu tiên
+    MucDoUuTien mucUuTien = lanKham->mucDoUuTien;
+    
+    // Tạo node mới
+    NodeHangDoi* nodeNew = (NodeHangDoi*)malloc(sizeof(NodeHangDoi));
+    if (nodeNew == NULL) {
+        return 0; // Lỗi cấp phát bộ nhớ
+    }
+    
+    nodeNew->lanKham = lanKham;
+    nodeNew->thoiGianVaoHangDoi = time(NULL);
+    nodeNew->next = NULL;
+    
+    // Lấy hàng đợi tương ứng
+    HangDoiUuTien* hangDoi = &(quanLy->danhSachUuTien[mucUuTien]);
+    
+    // Nếu hàng đợi rỗng
+    if (hangDoi->head == NULL) {
+        hangDoi->head = nodeNew;
+        hangDoi->tail = nodeNew;
+    } else {
+        // Thêm vào cuối hàng đợi (đảm bảo FIFO)
+        hangDoi->tail->next = nodeNew;
+        hangDoi->tail = nodeNew;
+    }
+    
+    // Cập nhật số lượng
+    hangDoi->count++;
+    quanLy->tongSoBenhNhan++;
+    
+    return 1;
+}
+
+// Lấy bệnh nhân có ưu tiên cao nhất
+LanKham* layBenhNhanUuTienCaoNhat(QuanLyHangDoi* quanLy) {
+    // Duyệt qua các mức ưu tiên từ cao đến thấp
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        HangDoiUuTien* hangDoi = &(quanLy->danhSachUuTien[i]);
+        
+        // Nếu mức ưu tiên này có bệnh nhân
+        if (hangDoi->head != NULL) {
+            // Lấy node đầu tiên (FIFO - người vào sớm nhất)
+            NodeHangDoi* nodeFirst = hangDoi->head;
+            LanKham* lanKham = nodeFirst->lanKham;
+            
+            // Cập nhật hàng đợi
+            hangDoi->head = nodeFirst->next;
+            if (hangDoi->head == NULL) {
+                hangDoi->tail = NULL;
+            }
+            
+            // Cập nhật số lượng
+            hangDoi->count--;
+            quanLy->tongSoBenhNhan--;
+            
+            // Giải phóng node
+            free(nodeFirst);
+            
+            // Cập nhật trạng thái lần khám
+            lanKham->trangThai = LK_DANG_KHAM;
+            
+            return lanKham;
+        }
+    }
+    
+    // Không có bệnh nhân nào trong hàng đợi
+    return NULL;
+}
+
+// Tìm vị trí của bệnh nhân trong hàng đợi
+int timViTriTrongHangDoi(QuanLyHangDoi* quanLy, int maDinhDanh, MucDoUuTien* mucUuTien, int* viTriTrongMucUuTien) {
+    // Duyệt qua các mức ưu tiên
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        HangDoiUuTien* hangDoi = &(quanLy->danhSachUuTien[i]);
+        NodeHangDoi* current = hangDoi->head;
+        int viTri = 1;
+        
+        while (current != NULL) {
+            if (current->lanKham->maDinhDanh == maDinhDanh) {
+                *mucUuTien = (MucDoUuTien)i;
+                *viTriTrongMucUuTien = viTri;
+                return 1; // Tìm thấy
+            }
+            
+            current = current->next;
+            viTri++;
+        }
+    }
+    
+    return 0; // Không tìm thấy
+}
+
+// Cập nhật mức ưu tiên của bệnh nhân trong hàng đợi
+int capNhatUuTienTrongHangDoi(QuanLyHangDoi* quanLy, int maDinhDanh, MucDoUuTien mucUuTienMoi) {
+    // Tìm bệnh nhân trong hàng đợi
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        HangDoiUuTien* hangDoi = &(quanLy->danhSachUuTien[i]);
+        NodeHangDoi* current = hangDoi->head;
+        NodeHangDoi* prev = NULL;
+        
+        while (current != NULL) {
+            if (current->lanKham->maDinhDanh == maDinhDanh) {
+                // Nếu mức ưu tiên không thay đổi
+                if ((MucDoUuTien)i == mucUuTienMoi) {
+                    return 1;
+                }
+                
+                // Lưu lại thông tin node
+                NodeHangDoi* nodeMove = current;
+                LanKham* lanKham = current->lanKham;
+                time_t thoiGianVaoHangDoi = current->thoiGianVaoHangDoi;
+                
+                // Xóa khỏi hàng đợi hiện tại
+                if (prev == NULL) {
+                    // Node đầu tiên
+                    hangDoi->head = current->next;
+                    if (hangDoi->head == NULL) {
+                        hangDoi->tail = NULL;
+                    }
+                } else {
+                    // Node ở giữa hoặc cuối
+                    prev->next = current->next;
+                    if (current == hangDoi->tail) {
+                        hangDoi->tail = prev;
+                    }
+                }
+                
+                // Cập nhật số lượng
+                hangDoi->count--;
+                
+                // Cập nhật mức ưu tiên
+                lanKham->mucDoUuTien = mucUuTienMoi;
+                
+                // Thêm vào hàng đợi mới
+                HangDoiUuTien* hangDoiMoi = &(quanLy->danhSachUuTien[mucUuTienMoi]);
+                nodeMove->next = NULL;
+                
+                // Nếu hàng đợi mới rỗng
+                if (hangDoiMoi->head == NULL) {
+                    hangDoiMoi->head = nodeMove;
+                    hangDoiMoi->tail = nodeMove;
+                } else {
+                    // Thêm vào cuối hàng đợi mới
+                    hangDoiMoi->tail->next = nodeMove;
+                    hangDoiMoi->tail = nodeMove;
+                }
+                
+                // Cập nhật số lượng
+                hangDoiMoi->count++;
+                
+                return 1; // Cập nhật thành công
+            }
+            
+            prev = current;
+            current = current->next;
+        }
+    }
+    
+    return 0; // Không tìm thấy bệnh nhân
+}
+
+// Xóa bệnh nhân khỏi hàng đợi
+int xoaKhoiHangDoi(QuanLyHangDoi* quanLy, int maDinhDanh) {
+    // Tìm bệnh nhân trong hàng đợi
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        HangDoiUuTien* hangDoi = &(quanLy->danhSachUuTien[i]);
+        NodeHangDoi* current = hangDoi->head;
+        NodeHangDoi* prev = NULL;
+        
+        while (current != NULL) {
+            if (current->lanKham->maDinhDanh == maDinhDanh) {
+                // Xóa node
+                if (prev == NULL) {
+                    // Node đầu tiên
+                    hangDoi->head = current->next;
+                    if (hangDoi->head == NULL) {
+                        hangDoi->tail = NULL;
+                    }
+                } else {
+                    // Node ở giữa hoặc cuối
+                    prev->next = current->next;
+                    if (current == hangDoi->tail) {
+                        hangDoi->tail = prev;
+                    }
+                }
+                
+                // Cập nhật số lượng
+                hangDoi->count--;
+                quanLy->tongSoBenhNhan--;
+                
+                // Giải phóng node
+                free(current);
+                
+                return 1; // Xóa thành công
+            }
+            
+            prev = current;
+            current = current->next;
+        }
+    }
+    
+    return 0; // Không tìm thấy bệnh nhân
+}
+
+// Lấy số lượng bệnh nhân đang chờ theo mức độ ưu tiên
+int getSoLuongTheoUuTien(QuanLyHangDoi* quanLy, MucDoUuTien mucUuTien) {
+    return quanLy->danhSachUuTien[mucUuTien].count;
+}
+
+// Lấy tổng số bệnh nhân đang chờ
+int getTongSoBenhNhanCho(QuanLyHangDoi* quanLy) {
+    return quanLy->tongSoBenhNhan;
+}
+
+// Giải phóng hàng đợi
+void giaiPhongHangDoi(QuanLyHangDoi* quanLy) {
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        NodeHangDoi* current = quanLy->danhSachUuTien[i].head;
+        
+        while (current != NULL) {
+            NodeHangDoi* temp = current;
+            current = current->next;
+            free(temp);
+        }
+        
+        quanLy->danhSachUuTien[i].head = NULL;
+        quanLy->danhSachUuTien[i].tail = NULL;
+        quanLy->danhSachUuTien[i].count = 0;
+    }
+    
+    quanLy->tongSoBenhNhan = 0;
+}
+
+// === 7. TRIỂN KHAI CÁC HÀM QUẢN LÝ BÁC SĨ VÀ KHOA PHÒNG ===
+
+// Khởi tạo quản lý bác sĩ
+void khoiTaoQuanLyBacSi(QuanLyBacSi* quanLy) {
+    quanLy->danhSach = NULL;
+    quanLy->soLuong = 0;
+    quanLy->kichThuoc = 0;
+}
+
+// Khởi tạo quản lý khoa phòng
+void khoiTaoQuanLyKhoaPhong(QuanLyKhoaPhong* quanLy) {
+    quanLy->danhSach = NULL;
+    quanLy->soLuong = 0;
+    quanLy->kichThuoc = 0;
+}
+
+// Thêm bác sĩ mới
+int themBacSi(QuanLyBacSi* quanLy, BacSi bacSi) {
+    // Kiểm tra xem mã bác sĩ đã tồn tại chưa
+    for (int i = 0; i < quanLy->soLuong; i++) {
+        if (strcmp(quanLy->danhSach[i].maBacSi, bacSi.maBacSi) == 0) {
+            return 0; // Bác sĩ đã tồn tại
+        }
+    }
+    
+    // Nếu mảng đã đầy, cấp phát thêm bộ nhớ
+    if (quanLy->soLuong >= quanLy->kichThuoc) {
+        int kichThuocMoi = (quanLy->kichThuoc == 0) ? 10 : quanLy->kichThuoc * 2;
+        BacSi* danhSachMoi = (BacSi*)realloc(quanLy->danhSach, kichThuocMoi * sizeof(BacSi));
+        
+        if (danhSachMoi == NULL) {
+            return -1; // Lỗi cấp phát bộ nhớ
+        }
+        
+        quanLy->danhSach = danhSachMoi;
+        quanLy->kichThuoc = kichThuocMoi;
+    }
+    
+    // Thêm bác sĩ mới vào mảng
+    quanLy->danhSach[quanLy->soLuong++] = bacSi;
+    
+    return 1; // Thêm thành công
+}
+
+// Thêm khoa phòng mới
+int themKhoaPhong(QuanLyKhoaPhong* quanLy, KhoaPhong khoaPhong) {
+    // Kiểm tra xem mã khoa phòng đã tồn tại chưa
+    for (int i = 0; i < quanLy->soLuong; i++) {
+        if (strcmp(quanLy->danhSach[i].maKhoaPhong, khoaPhong.maKhoaPhong) == 0) {
+            return 0; // Khoa phòng đã tồn tại
+        }
+    }
+    
+    // Nếu mảng đã đầy, cấp phát thêm bộ nhớ
+    if (quanLy->soLuong >= quanLy->kichThuoc) {
+        int kichThuocMoi = (quanLy->kichThuoc == 0) ? 10 : quanLy->kichThuoc * 2;
+        KhoaPhong* danhSachMoi = (KhoaPhong*)realloc(quanLy->danhSach, kichThuocMoi * sizeof(KhoaPhong));
+        
+        if (danhSachMoi == NULL) {
+            return -1; // Lỗi cấp phát bộ nhớ
+        }
+        
+        quanLy->danhSach = danhSachMoi;
+        quanLy->kichThuoc = kichThuocMoi;
+    }
+    
+    // Thêm khoa phòng mới vào mảng
+    quanLy->danhSach[quanLy->soLuong++] = khoaPhong;
+    
+    return 1; // Thêm thành công
+}
+
+// Tìm bác sĩ theo mã
+BacSi* timBacSiTheoMa(QuanLyBacSi* quanLy, const char* maBacSi) {
+    for (int i = 0; i < quanLy->soLuong; i++) {
+        if (strcmp(quanLy->danhSach[i].maBacSi, maBacSi) == 0) {
+            return &(quanLy->danhSach[i]);
+        }
+    }
+    
+    return NULL; // Không tìm thấy
+}
+
+// Tìm khoa phòng theo mã
+KhoaPhong* timKhoaPhongTheoMa(QuanLyKhoaPhong* quanLy, const char* maKhoaPhong) {
+    for (int i = 0; i < quanLy->soLuong; i++) {
+        if (strcmp(quanLy->danhSach[i].maKhoaPhong, maKhoaPhong) == 0) {
+            return &(quanLy->danhSach[i]);
+        }
+    }
+    
+    return NULL; // Không tìm thấy
+}
+
+// Giải phóng quản lý bác sĩ
+void giaiPhongQuanLyBacSi(QuanLyBacSi* quanLy) {
+    if (quanLy->danhSach != NULL) {
+        free(quanLy->danhSach);
+        quanLy->danhSach = NULL;
+    }
+    
+    quanLy->soLuong = 0;
+    quanLy->kichThuoc = 0;
+}
+
+// Giải phóng quản lý khoa phòng
+void giaiPhongQuanLyKhoaPhong(QuanLyKhoaPhong* quanLy) {
+    if (quanLy->danhSach != NULL) {
+        free(quanLy->danhSach);
+        quanLy->danhSach = NULL;
+    }
+    
+    quanLy->soLuong = 0;
+    quanLy->kichThuoc = 0;
+}
+
+// === 8. TRIỂN KHAI CÁC HÀM XỬ LÝ CSV ===
+
+// Hàm nhập bệnh nhân từ file CSV
+// Format: maDinhDanh,bhyt,soDienThoai,ten,ngay_sinh,thang_sinh,nam_sinh,gioiTinh,diaChi,tieuSuBenhLy
+int nhapBenhNhanTuCSV(QuanLyBenhNhan* quanLy, const char* tenFile) {
+    FILE* file = fopen(tenFile, "r");
+    if (file == NULL) {
+        printf("Khong the mo file %s de doc\n", tenFile);
+        return 0;
+    }
+    
+    char buffer[2048];
+    int soBenhNhan = 0;
+    int dong = 0;
+    
+    // Đọc header (dòng đầu tiên)
+    if (fgets(buffer, sizeof(buffer), file) == NULL) {
+        fclose(file);
+        return 0;
+    }
+    
+    // Đọc từng dòng dữ liệu
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        dong++;
+        // Xử lý dòng dữ liệu
+        BenhNhan benhNhan;
+        memset(&benhNhan, 0, sizeof(BenhNhan));
+        
+        char* token = strtok(buffer, ",");
+        if (token == NULL) continue;
+        
+        // Đọc mã định danh
+        benhNhan.maDinhDanh = atoi(token);
+        
+        // Đọc BHYT
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(benhNhan.bhyt, token, sizeof(benhNhan.bhyt) - 1);
+        
+        // Đọc số điện thoại
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(benhNhan.soDienThoai, token, sizeof(benhNhan.soDienThoai) - 1);
+        
+        // Đọc tên
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(benhNhan.ten, token, sizeof(benhNhan.ten) - 1);
+        
+        // Đọc ngày sinh
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        benhNhan.ngaySinh.ngay = atoi(token);
+        
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        benhNhan.ngaySinh.thang = atoi(token);
+        
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        benhNhan.ngaySinh.nam = atoi(token);
+        
+        // Đọc giới tính
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        benhNhan.gioiTinh = atoi(token);
+        
+        // Đọc địa chỉ
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(benhNhan.diaChi, token, sizeof(benhNhan.diaChi) - 1);
+        
+        // Đọc tiểu sử bệnh lý
+        token = strtok(NULL, "\n");
+        if (token == NULL) continue;
+        strncpy(benhNhan.tieuSuBenhLy, token, sizeof(benhNhan.tieuSuBenhLy) - 1);
+        
+        // Tính tuổi và thiết lập ngày tạo hồ sơ
+        benhNhan.tuoi = tinhTuoi(benhNhan.ngaySinh);
+        benhNhan.ngayTaoHoSo = time(NULL);
+        
+        // Thêm bệnh nhân vào hệ thống
+        if (themBenhNhan(quanLy, benhNhan) > 0) {
+            soBenhNhan++;
+        } else {
+            printf("Loi khi them benh nhan tai dong %d\n", dong);
+        }
+    }
+    
+    fclose(file);
+    return soBenhNhan;
+}
+
+// Hàm nhập bác sĩ từ file CSV
+// Format: maBacSi,tenBacSi,chuyenKhoa,soDienThoai,email,maKhoaPhong
+int nhapBacSiTuCSV(QuanLyBacSi* quanLy, const char* tenFile) {
+    FILE* file = fopen(tenFile, "r");
+    if (file == NULL) {
+        printf("Khong the mo file %s de doc\n", tenFile);
+        return 0;
+    }
+    
+    char buffer[1024];
+    int soBacSi = 0;
+    int dong = 0;
+    
+    // Đọc header (dòng đầu tiên)
+    if (fgets(buffer, sizeof(buffer), file) == NULL) {
+        fclose(file);
+        return 0;
+    }
+    
+    // Đọc từng dòng dữ liệu
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        dong++;
+        // Xử lý dòng dữ liệu
+        BacSi bacSi;
+        memset(&bacSi, 0, sizeof(BacSi));
+        
+        char* token = strtok(buffer, ",");
+        if (token == NULL) continue;
+        
+        // Đọc mã bác sĩ
+        strncpy(bacSi.maBacSi, token, sizeof(bacSi.maBacSi) - 1);
+        
+        // Đọc tên bác sĩ
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(bacSi.tenBacSi, token, sizeof(bacSi.tenBacSi) - 1);
+        
+        // Đọc chuyên khoa
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(bacSi.chuyenKhoa, token, sizeof(bacSi.chuyenKhoa) - 1);
+        
+        // Đọc số điện thoại
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(bacSi.soDienThoai, token, sizeof(bacSi.soDienThoai) - 1);
+        
+        // Đọc email
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(bacSi.email, token, sizeof(bacSi.email) - 1);
+        
+        // Đọc mã khoa phòng
+        token = strtok(NULL, "\n");
+        if (token == NULL) continue;
+        strncpy(bacSi.maKhoaPhong, token, sizeof(bacSi.maKhoaPhong) - 1);
+        
+        // Thêm bác sĩ vào hệ thống
+        if (themBacSi(quanLy, bacSi) > 0) {
+            soBacSi++;
+        } else {
+            printf("Loi khi them bac si tai dong %d\n", dong);
+        }
+    }
+    
+    fclose(file);
+    return soBacSi;
+}
+
+// Hàm nhập khoa phòng từ file CSV
+// Format: maKhoaPhong,tenKhoaPhong,viTri,moTa
+int nhapKhoaPhongTuCSV(QuanLyKhoaPhong* quanLy, const char* tenFile) {
+    FILE* file = fopen(tenFile, "r");
+    if (file == NULL) {
+        printf("Khong the mo file %s de doc\n", tenFile);
+        return 0;
+    }
+    
+    char buffer[1024];
+    int soKhoaPhong = 0;
+    int dong = 0;
+    
+    // Đọc header (dòng đầu tiên)
+    if (fgets(buffer, sizeof(buffer), file) == NULL) {
+        fclose(file);
+        return 0;
+    }
+    
+    // Đọc từng dòng dữ liệu
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        dong++;
+        // Xử lý dòng dữ liệu
+        KhoaPhong khoaPhong;
+        memset(&khoaPhong, 0, sizeof(KhoaPhong));
+        
+        char* token = strtok(buffer, ",");
+        if (token == NULL) continue;
+        
+        // Đọc mã khoa phòng
+        strncpy(khoaPhong.maKhoaPhong, token, sizeof(khoaPhong.maKhoaPhong) - 1);
+        
+        // Đọc tên khoa phòng
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(khoaPhong.tenKhoaPhong, token, sizeof(khoaPhong.tenKhoaPhong) - 1);
+        
+        // Đọc vị trí
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(khoaPhong.viTri, token, sizeof(khoaPhong.viTri) - 1);
+        
+        // Đọc mô tả
+        token = strtok(NULL, "\n");
+        if (token == NULL) continue;
+        strncpy(khoaPhong.moTa, token, sizeof(khoaPhong.moTa) - 1);
+        
+        // Thêm khoa phòng vào hệ thống
+        if (themKhoaPhong(quanLy, khoaPhong) > 0) {
+            soKhoaPhong++;
+        } else {
+            printf("Loi khi them khoa phong tai dong %d\n", dong);
+        }
+    }
+    
+    fclose(file);
+    return soKhoaPhong;
+}
+
+// Hàm nhập lần khám từ file CSV
+// Format: maLanKham,maDinhDanh,maBacSi,maKhoaPhong,lyDoKham,mucDoUuTien
+int nhapLanKhamTuCSV(QuanLyLanKham* quanLy, const char* tenFile) {
+    FILE* file = fopen(tenFile, "r");
+    if (file == NULL) {
+        printf("Khong the mo file %s de doc\n", tenFile);
+        return 0;
+    }
+    
+    char buffer[2048];
+    int soLanKham = 0;
+    int dong = 0;
+    
+    // Đọc header (dòng đầu tiên)
+    if (fgets(buffer, sizeof(buffer), file) == NULL) {
+        fclose(file);
+        return 0;
+    }
+    
+    // Đọc từng dòng dữ liệu
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        dong++;
+        // Xử lý dòng dữ liệu
+        LanKham lanKham;
+        memset(&lanKham, 0, sizeof(LanKham));
+        
+        char* token = strtok(buffer, ",");
+        if (token == NULL) continue;
+        
+        // Đọc mã lần khám
+        lanKham.maLanKham = atoi(token);
+        
+        // Đọc mã định danh
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        lanKham.maDinhDanh = atoi(token);
+        
+        // Đọc mã bác sĩ
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(lanKham.maBacSi, token, sizeof(lanKham.maBacSi) - 1);
+        
+        // Đọc mã khoa phòng
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(lanKham.maKhoaPhong, token, sizeof(lanKham.maKhoaPhong) - 1);
+        
+        // Đọc lý do khám
+        token = strtok(NULL, ",");
+        if (token == NULL) continue;
+        strncpy(lanKham.lyDoKham, token, sizeof(lanKham.lyDoKham) - 1);
+        
+        // Đọc mức độ ưu tiên
+        token = strtok(NULL, "\n");
+        if (token == NULL) continue;
+        lanKham.mucDoUuTien = atoi(token);
+        
+        // Thiết lập các giá trị mặc định
+        lanKham.gioDangKyThanhCong = time(NULL);
+        lanKham.trangThai = LK_DANG_CHO;
+        
+        // Thêm lần khám vào hệ thống
+        if (themLanKham(quanLy, lanKham) > 0) {
+            soLanKham++;
+        } else {
+            printf("Loi khi them lan kham tai dong %d\n", dong);
+        }
+    }
+    
+    fclose(file);
+    return soLanKham;
+}
+
+// Hàm xuất danh sách bệnh nhân ra file CSV
+int xuatBenhNhanRaCSV(QuanLyBenhNhan* quanLy, const char* tenFile) {
+    FILE* file = fopen(tenFile, "w");
+    if (file == NULL) {
+        printf("Khong the mo file %s de ghi\n", tenFile);
+        return 0;
+    }
+    
+    // Ghi header
+    fprintf(file, "maDinhDanh,bhyt,soDienThoai,ten,ngay_sinh,thang_sinh,nam_sinh,tuoi,gioiTinh,diaChi,tieuSuBenhLy\n");
+    
+    // Lấy danh sách bệnh nhân
+    NodeBenhNhan* danhSach = layToanBoDanhSachBenhNhan(quanLy);
+    int soBenhNhan = 0;
+    
+    // Ghi từng bệnh nhân
+    NodeBenhNhan* current = danhSach;
+    while (current != NULL) {
+        BenhNhan bn = current->benhNhan;
+        
+        fprintf(file, "%d,%s,%s,%s,%d,%d,%d,%d,%d,%s,%s\n",
+                bn.maDinhDanh,
+                bn.bhyt,
+                bn.soDienThoai,
+                bn.ten,
+                bn.ngaySinh.ngay,
+                bn.ngaySinh.thang,
+                bn.ngaySinh.nam,
+                bn.tuoi,
+                bn.gioiTinh,
+                bn.diaChi,
+                bn.tieuSuBenhLy);
+        
+        soBenhNhan++;
+        current = current->next;
+    }
+    
+    // Giải phóng danh sách tạm
+    while (danhSach != NULL) {
+        NodeBenhNhan* temp = danhSach;
+        danhSach = danhSach->next;
+        free(temp);
+    }
+    
+    fclose(file);
+    return soBenhNhan;
+}
+
+// Hàm xuất danh sách lần khám ra file CSV
+int xuatLanKhamRaCSV(QuanLyLanKham* quanLy, const char* tenFile) {
+    FILE* file = fopen(tenFile, "w");
+    if (file == NULL) {
+        printf("Khong the mo file %s de ghi\n", tenFile);
+        return 0;
+    }
+    
+    // Ghi header
+    fprintf(file, "maLanKham,maDinhDanh,maBacSi,maKhoaPhong,ngayGioKham,lyDoKham,chanDoan,phuongPhapDieuTri,mucDoUuTien,trangThai\n");
+    
+    int soLanKham = 0;
+    
+    // Duyệt qua từng bucket trong bảng băm
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        NodeLanKhamLS* current = quanLy->bangBam[i].head;
+        
+        while (current != NULL) {
+            LanKham lk = current->lanKham;
+            
+            // Chuyển ngày giờ khám sang định dạng chuỗi
+            char ngayGioKham[50] = "Chua kham";
+            if (lk.ngayGioKham > 0) {
+                struct tm* timeinfo = localtime(&(lk.ngayGioKham));
+                strftime(ngayGioKham, sizeof(ngayGioKham), "%d/%m/%Y %H:%M:%S", timeinfo);
+            }
+            
+            fprintf(file, "%d,%d,%s,%s,%s,%s,%s,%s,%d,%d\n",
+                    lk.maLanKham,
+                    lk.maDinhDanh,
+                    lk.maBacSi,
+                    lk.maKhoaPhong,
+                    ngayGioKham,
+                    lk.lyDoKham,
+                    lk.chanDoan,
+                    lk.phuongPhapDieuTri,
+                    lk.mucDoUuTien,
+                    lk.trangThai);
+            
+            soLanKham++;
+            current = current->next;
+        }
+    }
+    
+    fclose(file);
+    return soLanKham;
+}
+
+// Hàm xuất hàng đợi ra file CSV
+int xuatHangDoiRaCSV(QuanLyHangDoi* quanLy, QuanLyBenhNhan* dsBenhNhan, const char* tenFile) {
+    FILE* file = fopen(tenFile, "w");
+    if (file == NULL) {
+        printf("Khong the mo file %s de ghi\n", tenFile);
+        return 0;
+    }
+    
+    // Ghi header
+    fprintf(file, "stt,maDinhDanh,tenBenhNhan,maLanKham,mucUuTien,lyDoKham\n");
+    
+    int tongStt = 1;
+    int soBenhNhan = 0;
+    
+    // Duyệt qua từng mức ưu tiên
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        NodeHangDoi* current = quanLy->danhSachUuTien[i].head;
+        
+        while (current != NULL) {
+            LanKham* lk = current->lanKham;
+            BenhNhan* bn = timBenhNhanTheoMa(dsBenhNhan, lk->maDinhDanh);
+            
+            fprintf(file, "%d,%d,%s,%d,%s,%s\n",
+                    tongStt++,
+                    lk->maDinhDanh,
+                    bn ? bn->ten : "Khong tim thay",
+                    lk->maLanKham,
+                    layTenMucUuTien(lk->mucDoUuTien),
+                    lk->lyDoKham);
+            
+            soBenhNhan++;
+            current = current->next;
+        }
+    }
+    
+    fclose(file);
+    return soBenhNhan;
+}
+
+// Hàm xuất thống kê ra file CSV
+int xuatThongKeRaCSV(HeThongQuanLyKhamBenh* heThong, const char* tenFile) {
+    FILE* file = fopen(tenFile, "w");
+    if (file == NULL) {
+        printf("Khong the mo file %s de ghi\n", tenFile);
+        return 0;
+    }
+    
+    // Ghi header
+    fprintf(file, "loaiThongKe,giaTri\n");
+    
+    // Thống kê tổng số bệnh nhân
+    fprintf(file, "Tong so benh nhan,%d\n", heThong->dsBenhNhan.tongSoBenhNhan);
+    
+    // Thống kê tổng số lần khám
+    fprintf(file, "Tong so lan kham,%d\n", heThong->dsLanKham.tongSoLanKham);
+    
+    // Thống kê số bệnh nhân đang chờ
+    fprintf(file, "So benh nhan dang cho,%d\n", heThong->hangDoiKham.tongSoBenhNhan);
+    
+    // Thống kê theo mức ưu tiên
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        fprintf(file, "So benh nhan muc %s,%d\n",
+                layTenMucUuTien((MucDoUuTien)i),
+                heThong->hangDoiKham.danhSachUuTien[i].count);
+    }
+    
+    // Thống kê theo trạng thái
+    int soLuongTheoTrangThai[5] = {0};  // Mảng đếm số lượng theo trạng thái
+    
+    // Duyệt qua từng bucket trong bảng băm lần khám
+    for (int i = 0; i < KICH_THUOC_BANG_BAM_LAN_KHAM; i++) {
+        NodeLanKhamLS* current = heThong->dsLanKham.bangBam[i].head;
+        
+        while (current != NULL) {
+            TrangThaiLanKham trangThai = current->lanKham.trangThai;
+            if (trangThai >= 0 && trangThai < 5) {
+                soLuongTheoTrangThai[trangThai]++;
+            }
+            current = current->next;
+        }
+    }
+    
+    // Ghi thống kê theo trạng thái
+    for (int i = 0; i < 5; i++) {
+        fprintf(file, "So lan kham trang thai %s,%d\n",
+                layTenTrangThai((TrangThaiLanKham)i),
+                soLuongTheoTrangThai[i]);
+    }
+    
+    fclose(file);
+    return 1;
+}
+
+// Khởi tạo hệ thống
+void khoiTaoHeThong(HeThongQuanLyKhamBenh* heThong) {
+    khoiTaoQuanLyBenhNhan(&(heThong->dsBenhNhan));
+    khoiTaoQuanLyLanKham(&(heThong->dsLanKham));
+    khoiTaoQuanLyHangDoi(&(heThong->hangDoiKham));
+    khoiTaoQuanLyBacSi(&(heThong->dsBacSi));
+    khoiTaoQuanLyKhoaPhong(&(heThong->dsKhoaPhong));
+}
+
+// Đăng ký khám mới cho bệnh nhân
+int dangKyKhamBenh(HeThongQuanLyKhamBenh* heThong, int maDinhDanh, MucDoUuTien mucUuTien, const char* lyDoKham, const char* maKhoaPhong) {
+    // Kiểm tra bệnh nhân có tồn tại không
+    BenhNhan* benhNhan = timBenhNhanTheoMa(&(heThong->dsBenhNhan), maDinhDanh);
+    if (benhNhan == NULL) {
+        return -1; // Bệnh nhân không tồn tại
+    }
+    
+    // Kiểm tra khoa phòng có tồn tại không
+    if (timKhoaPhongTheoMa(&(heThong->dsKhoaPhong), maKhoaPhong) == NULL) {
+        return -2; // Khoa phòng không tồn tại
+    }
+    
+    // Tạo lần khám mới
+    LanKham lanKham;
+    memset(&lanKham, 0, sizeof(LanKham));
+    
+    lanKham.maLanKham = heThong->dsLanKham.maLanKhamTiepTheo++;
+    lanKham.maDinhDanh = maDinhDanh;
+    strcpy(lanKham.maKhoaPhong, maKhoaPhong);
+    lanKham.ngayGioKham = 0; // Chưa khám
+    strcpy(lanKham.lyDoKham, lyDoKham);
+    lanKham.mucDoUuTien = mucUuTien;
+    lanKham.gioDangKyThanhCong = time(NULL);
+    lanKham.trangThai = LK_DANG_CHO;
+    
+    // Thêm lần khám vào danh sách
+    int ketQua = themLanKham(&(heThong->dsLanKham), lanKham);
+    if (ketQua <= 0) {
+        return -3; // Lỗi khi thêm lần khám
+    }
+    
+    // Lấy con trỏ đến lần khám vừa thêm
+    LanKham* lanKhamPtr = timLanKhamTheoMa(&(heThong->dsLanKham), ketQua);
+    if (lanKhamPtr == NULL) {
+        return -4; // Lỗi khi tìm lần khám
+    }
+    
+    // Thêm vào hàng đợi chờ khám
+    if (!themVaoHangDoi(&(heThong->hangDoiKham), lanKhamPtr)) {
+        // Nếu không thêm được vào hàng đợi
+        capNhatTrangThaiLanKham(&(heThong->dsLanKham), ketQua, LK_DA_HUY);
+        return -5; // Lỗi khi thêm vào hàng đợi
+    }
+    
+    return ketQua; // Trả về mã lần khám
+}
+
+// Gọi bệnh nhân tiếp theo vào khám
+LanKham* goiBenhNhanTiepTheo(HeThongQuanLyKhamBenh* heThong) {
+    // Lấy bệnh nhân có ưu tiên cao nhất
+    LanKham* lanKham = layBenhNhanUuTienCaoNhat(&(heThong->hangDoiKham));
+    
+    // Nếu có bệnh nhân
+    if (lanKham != NULL) {
+        // Cập nhật thời gian bắt đầu khám
+        lanKham->ngayGioKham = time(NULL);
+        
+        // Cập nhật trạng thái
+        capNhatTrangThaiLanKham(&(heThong->dsLanKham), lanKham->maLanKham, LK_DANG_KHAM);
+    }
+    
+    return lanKham;
+}
+
+// Cập nhật kết quả sau khi khám xong
+int capNhatKetQuaKham(HeThongQuanLyKhamBenh* heThong, int maLanKham, const char* maBacSi, const char* chanDoan, const char* phuongPhapDieuTri) {
+    // Tìm lần khám
+    LanKham* lanKham = timLanKhamTheoMa(&(heThong->dsLanKham), maLanKham);
+    if (lanKham == NULL) {
+        return 0; // Không tìm thấy lần khám
+    }
+    
+    // Kiểm tra bác sĩ có tồn tại không
+    if (timBacSiTheoMa(&(heThong->dsBacSi), maBacSi) == NULL) {
+        return -1; // Bác sĩ không tồn tại
+    }
+    
+    // Cập nhật thông tin
+    strcpy(lanKham->maBacSi, maBacSi);
+    strcpy(lanKham->chanDoan, chanDoan);
+    strcpy(lanKham->phuongPhapDieuTri, phuongPhapDieuTri);
+    
+    // Cập nhật trạng thái
+    lanKham->trangThai = LK_DA_HOAN_THANH;
+    
+    // Cập nhật vào cơ sở dữ liệu
+    return capNhatLanKham(&(heThong->dsLanKham), *lanKham);
+}
+
+// Tìm kiếm bệnh nhân theo các tiêu chí khác nhau
+BenhNhan* timKiemBenhNhan(HeThongQuanLyKhamBenh* heThong, const char* tieuChi, const char* giaTri) {
+    if (strcmp(tieuChi, "maDinhDanh") == 0) {
+        int ma = atoi(giaTri);
+        return timBenhNhanTheoMa(&(heThong->dsBenhNhan), ma);
+    } else if (strcmp(tieuChi, "soDienThoai") == 0) {
+        return timBenhNhanTheoSDT(&(heThong->dsBenhNhan), giaTri);
+    } else if (strcmp(tieuChi, "bhyt") == 0) {
+        return timBenhNhanTheoBHYT(&(heThong->dsBenhNhan), giaTri);
+    } else {
+        return NULL; // Tiêu chí không hợp lệ
+    }
+}
+
+// Xem lịch sử khám của bệnh nhân
+NodeLanKhamLS* xemLichSuKham(HeThongQuanLyKhamBenh* heThong, int maDinhDanh, int* soLuongKetQua) {
+    return timLanKhamTheoBenhNhan(&(heThong->dsLanKham), maDinhDanh, soLuongKetQua);
+}
+
+// Giải phóng hệ thống
+void giaiPhongHeThong(HeThongQuanLyKhamBenh* heThong) {
+    giaiPhongDanhSachBenhNhan(&(heThong->dsBenhNhan));
+    giaiPhongDanhSachLanKham(&(heThong->dsLanKham));
+    giaiPhongHangDoi(&(heThong->hangDoiKham));
+    giaiPhongQuanLyBacSi(&(heThong->dsBacSi));
+    giaiPhongQuanLyKhoaPhong(&(heThong->dsKhoaPhong));
+}
+
+// === 10. CHƯƠNG TRÌNH MINH HỌA ===
+
+// Hàm hiển thị thông tin bệnh nhân
+void hienThiThongTinBenhNhan(BenhNhan* benhNhan) {
+    if (benhNhan == NULL) {
+        printf("Benh nhan khong ton tai\n");
+        return;
+    }
+    
+    printf("=== THONG TIN BENH NHAN ===\n");
+    printf("Ma dinh danh: %d\n", benhNhan->maDinhDanh);
+    printf("Ho ten: %s\n", benhNhan->ten);
+    printf("Ngay sinh: %02d/%02d/%04d\n", benhNhan->ngaySinh.ngay, benhNhan->ngaySinh.thang, benhNhan->ngaySinh.nam);
+    printf("Tuoi: %d\n", benhNhan->tuoi);
+    printf("Gioi tinh: %s\n", benhNhan->gioiTinh == GT_NAM ? "Nam" : (benhNhan->gioiTinh == GT_NU ? "Nu" : "Khac"));
+    printf("So dien thoai: %s\n", benhNhan->soDienThoai);
+    printf("BHYT: %s\n", benhNhan->bhyt);
+    printf("Dia chi: %s\n", benhNhan->diaChi);
+    printf("Tieu su benh ly: %s\n", benhNhan->tieuSuBenhLy);
+}
+
+// Hàm hiển thị thông tin lần khám
+void hienThiThongTinLanKham(LanKham* lanKham, HeThongQuanLyKhamBenh* heThong) {
+    if (lanKham == NULL) {
+        printf("Lan kham khong ton tai\n");
+        return;
+    }
+    
+    BenhNhan* benhNhan = timBenhNhanTheoMa(&(heThong->dsBenhNhan), lanKham->maDinhDanh);
+    BacSi* bacSi = NULL;
+    if (strlen(lanKham->maBacSi) > 0) {
+        bacSi = timBacSiTheoMa(&(heThong->dsBacSi), lanKham->maBacSi);
+    }
+    
+    KhoaPhong* khoaPhong = timKhoaPhongTheoMa(&(heThong->dsKhoaPhong), lanKham->maKhoaPhong);
+    
+    printf("=== THONG TIN LAN KHAM ===\n");
+    printf("Ma lan kham: %d\n", lanKham->maLanKham);
+    printf("Ten benh nhan: %s\n", benhNhan ? benhNhan->ten : "Khong tim thay");
+    printf("Bac si: %s\n", bacSi ? bacSi->tenBacSi : "Chua duoc phan cong");
+    printf("Khoa/Phong: %s\n", khoaPhong ? khoaPhong->tenKhoaPhong : "Khong tim thay");
+    
+    if (lanKham->ngayGioKham > 0) {
+        char buffer[100];
+        struct tm* timeinfo = localtime(&(lanKham->ngayGioKham));
+        strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M:%S", timeinfo);
+        printf("Ngay gio kham: %s\n", buffer);
+    } else {
+        printf("Ngay gio kham: Chua kham\n");
+    }
+    
+    printf("Ly do kham: %s\n", lanKham->lyDoKham);
+    printf("Chan doan: %s\n", lanKham->chanDoan);
+    printf("Phuong phap dieu tri: %s\n", lanKham->phuongPhapDieuTri);
+    printf("Muc do uu tien: %s\n", layTenMucUuTien(lanKham->mucDoUuTien));
+    printf("Trang thai: %s\n", layTenTrangThai(lanKham->trangThai));
+    
+    if (lanKham->gioDangKyThanhCong > 0) {
+        char buffer[100];
+        struct tm* timeinfo = localtime(&(lanKham->gioDangKyThanhCong));
+        strftime(buffer, sizeof(buffer), "%d/%m/%Y %H:%M:%S", timeinfo);
+        printf("Gio dang ky: %s\n", buffer);
+    }
+}
+
+// Hàm hiển thị trạng thái hàng đợi
+void hienThiTrangThaiHangDoi(QuanLyHangDoi* quanLy, HeThongQuanLyKhamBenh* heThong) {
+    printf("=== TRANG THAI HANG DOI ===\n");
+    printf("Tong so benh nhan dang cho: %d\n", quanLy->tongSoBenhNhan);
+    
+    for (int i = 0; i < SO_MUC_UU_TIEN; i++) {
+        printf("- Muc uu tien %s: %d benh nhan\n", layTenMucUuTien((MucDoUuTien)i), quanLy->danhSachUuTien[i].count);
+        
+        // Hiển thị danh sách bệnh nhân trong hàng đợi này
+        NodeHangDoi* current = quanLy->danhSachUuTien[i].head;
+        int stt = 1;
+        
+        while (current != NULL) {
+            BenhNhan* benhNhan = timBenhNhanTheoMa(&(heThong->dsBenhNhan), current->lanKham->maDinhDanh);
+            printf("  %d. %s (ID: %d, Ma lan kham: %d)\n", 
+                   stt++, 
+                   benhNhan ? benhNhan->ten : "Khong tim thay", 
+                   current->lanKham->maDinhDanh,
+                   current->lanKham->maLanKham);
+            
+            current = current->next;
+        }
+    }
+}
+
+// === 11. CHƯƠNG TRÌNH CHÍNH ===
+
+int main() {
+    HeThongQuanLyKhamBenh heThong;
+    khoiTaoHeThong(&heThong);
+    
+    int luaChon;
+    do {
+        printf("\n=== HE THONG QUAN LY KHAM BENH ===\n");
+        printf("1. Nhap du lieu tu file CSV\n");
+        printf("2. Dang ky kham benh\n");
+        printf("3. Goi benh nhan vao kham\n");
+        printf("4. Cap nhat ket qua kham\n");
+        printf("5. Tim kiem benh nhan\n");
+        printf("6. Xem lich su kham\n");
+        printf("7. Xem danh sach cho\n");
+        printf("8. Xuat du lieu ra file CSV\n");
+        printf("0. Thoat\n");
+        printf("Nhap lua chon: ");
+        scanf("%d", &luaChon);
+        getchar(); // Đọc ký tự xuống dòng
+        
+        switch (luaChon) {
+            case 1: {
+                // Nhập dữ liệu từ file CSV
+                int loaiDuLieu;
+                printf("\n--- NHAP DU LIEU TU FILE CSV ---\n");
+                printf("1. Nhap danh sach benh nhan\n");
+                printf("2. Nhap danh sach bac si\n");
+                printf("3. Nhap danh sach khoa phong\n");
+                printf("4. Nhap danh sach lan kham\n");
+                printf("Nhap lua chon: ");
+                scanf("%d", &loaiDuLieu);
+                getchar();
+                
+                char tenFile[100];
+                printf("Nhap ten file CSV: ");
+                fgets(tenFile, sizeof(tenFile), stdin);
+                tenFile[strcspn(tenFile, "\n")] = 0; // Xóa ký tự xuống dòng
+                
+                int ketQua = 0;
+                switch (loaiDuLieu) {
+                    case 1:
+                        ketQua = nhapBenhNhanTuCSV(&(heThong.dsBenhNhan), tenFile);
+                        printf("Da nhap %d benh nhan tu file CSV\n", ketQua);
+                        break;
+                    case 2:
+                        ketQua = nhapBacSiTuCSV(&(heThong.dsBacSi), tenFile);
+                        printf("Da nhap %d bac si tu file CSV\n", ketQua);
+                        break;
+                    case 3:
+                        ketQua = nhapKhoaPhongTuCSV(&(heThong.dsKhoaPhong), tenFile);
+                        printf("Da nhap %d khoa phong tu file CSV\n", ketQua);
+                        break;
+                    case 4:
+                        ketQua = nhapLanKhamTuCSV(&(heThong.dsLanKham), tenFile);
+                        printf("Da nhap %d lan kham tu file CSV\n", ketQua);
+                        break;
+                    default:
+                        printf("Lua chon khong hop le\n");
+                }
+                break;
+            }
+            case 2: {
+                // Đăng ký khám bệnh
+                int maDinhDanh;
+                MucDoUuTien mucUuTien;
+                char lyDoKham[500];
+                char maKhoaPhong[20];
+                
+                printf("\n--- DANG KY KHAM BENH ---\n");
+                printf("Nhap ma dinh danh benh nhan: ");
+                scanf("%d", &maDinhDanh);
+                getchar();
+                
+                // Kiểm tra bệnh nhân tồn tại
+                BenhNhan* benhNhan = timBenhNhanTheoMa(&(heThong.dsBenhNhan), maDinhDanh);
+                if (benhNhan == NULL) {
+                    printf("Benh nhan khong ton tai. Vui long nhap thong tin benh nhan moi.\n");
+                    BenhNhan benhNhanMoi;
+                    memset(&benhNhanMoi, 0, sizeof(BenhNhan));
+                    
+                    benhNhanMoi.maDinhDanh = maDinhDanh;
+                    
+                    printf("Nhap ten benh nhan: ");
+                    fgets(benhNhanMoi.ten, sizeof(benhNhanMoi.ten), stdin);
+                    benhNhanMoi.ten[strcspn(benhNhanMoi.ten, "\n")] = 0;
+                    
+                    printf("Nhap so dien thoai: ");
+                    fgets(benhNhanMoi.soDienThoai, sizeof(benhNhanMoi.soDienThoai), stdin);
+                    benhNhanMoi.soDienThoai[strcspn(benhNhanMoi.soDienThoai, "\n")] = 0;
+                    
+                    printf("Nhap so BHYT: ");
+                    fgets(benhNhanMoi.bhyt, sizeof(benhNhanMoi.bhyt), stdin);
+                    benhNhanMoi.bhyt[strcspn(benhNhanMoi.bhyt, "\n")] = 0;
+                    
+                    printf("Nhap ngay sinh (dd/mm/yyyy): ");
+                    int ngay, thang, nam;
+                    scanf("%d/%d/%d", &ngay, &thang, &nam);
+                    getchar();
+                    
+                    benhNhanMoi.ngaySinh.ngay = ngay;
+                    benhNhanMoi.ngaySinh.thang = thang;
+                    benhNhanMoi.ngaySinh.nam = nam;
+                    benhNhanMoi.tuoi = tinhTuoi(benhNhanMoi.ngaySinh);
+                    
+                    printf("Nhap gioi tinh (0:Nam, 1:Nu, 2:Khac): ");
+                    int gioiTinh;
+                    scanf("%d", &gioiTinh);
+                    getchar();
+                    benhNhanMoi.gioiTinh = (GioiTinh)gioiTinh;
+                    
+                    printf("Nhap dia chi: ");
+                    fgets(benhNhanMoi.diaChi, sizeof(benhNhanMoi.diaChi), stdin);
+                    benhNhanMoi.diaChi[strcspn(benhNhanMoi.diaChi, "\n")] = 0;
+                    
+                    printf("Nhap tieu su benh ly: ");
+                    fgets(benhNhanMoi.tieuSuBenhLy, sizeof(benhNhanMoi.tieuSuBenhLy), stdin);
+                    benhNhanMoi.tieuSuBenhLy[strcspn(benhNhanMoi.tieuSuBenhLy, "\n")] = 0;
+                    
+                    benhNhanMoi.ngayTaoHoSo = time(NULL);
+                    
+                    // Thêm bệnh nhân mới
+                    if (themBenhNhan(&(heThong.dsBenhNhan), benhNhanMoi) <= 0) {
+                        printf("Loi khi them benh nhan moi\n");
+                        break;
+                    }
+                    
+                    benhNhan = timBenhNhanTheoMa(&(heThong.dsBenhNhan), maDinhDanh);
+                }
+                
+                // Hiển thị thông tin bệnh nhân
+                hienThiThongTinBenhNhan(benhNhan);
+                
+                // Nhập thông tin khám
+                printf("Nhap muc do uu tien (0:Cap cuu, 1:Khan cap, 2:Thong thuong, 3:Tai kham, 4:Uu tien khac): ");
+                int mucUuTienInt;
+                scanf("%d", &mucUuTienInt);
+                getchar();
+                mucUuTien = (MucDoUuTien)mucUuTienInt;
+                
+                printf("Nhap ly do kham: ");
+                fgets(lyDoKham, sizeof(lyDoKham), stdin);
+                lyDoKham[strcspn(lyDoKham, "\n")] = 0;
+                
+                printf("Nhap ma khoa phong: ");
+                fgets(maKhoaPhong, sizeof(maKhoaPhong), stdin);
+                maKhoaPhong[strcspn(maKhoaPhong, "\n")] = 0;
+                
+                // Đăng ký khám
+                int maLanKham = dangKyKhamBenh(&heThong, maDinhDanh, mucUuTien, lyDoKham, maKhoaPhong);
+                if (maLanKham > 0) {
+                    printf("Dang ky kham benh thanh cong. Ma lan kham: %d\n", maLanKham);
+                } else {
+                    printf("Loi khi dang ky kham benh. Ma loi: %d\n", maLanKham);
+                }
+                break;
+            }
+            case 3: {
+                // Gọi bệnh nhân vào khám
+                printf("\n--- GOI BENH NHAN VAO KHAM ---\n");
+                
+                LanKham* lanKham = goiBenhNhanTiepTheo(&heThong);
+                if (lanKham != NULL) {
+                    BenhNhan* benhNhan = timBenhNhanTheoMa(&(heThong.dsBenhNhan), lanKham->maDinhDanh);
+                    printf("Da goi benh nhan: %s (Ma dinh danh: %d, Ma lan kham: %d)\n",
+                           benhNhan ? benhNhan->ten : "Khong tim thay",
+                           lanKham->maDinhDanh,
+                           lanKham->maLanKham);
+                    
+                    hienThiThongTinLanKham(lanKham, &heThong);
+                } else {
+                    printf("Khong co benh nhan nao trong hang doi\n");
+                }
+                break;
+            }
+            case 4: {
+                // Cập nhật kết quả khám
+                int maLanKham;
+                char maBacSi[20];
+                char chanDoan[500];
+                char phuongPhapDieuTri[1000];
+                
+                printf("\n--- CAP NHAT KET QUA KHAM ---\n");
+                printf("Nhap ma lan kham: ");
+                scanf("%d", &maLanKham);
+                getchar();
+                
+                // Kiểm tra lần khám tồn tại
+                LanKham* lanKham = timLanKhamTheoMa(&(heThong.dsLanKham), maLanKham);
+                if (lanKham == NULL) {
+                    printf("Lan kham khong ton tai\n");
+                    break;
+                }
+                
+                // Hiển thị thông tin lần khám
+                hienThiThongTinLanKham(lanKham, &heThong);
+                
+                // Nhập thông tin kết quả khám
+                printf("Nhap ma bac si: ");
+                fgets(maBacSi, sizeof(maBacSi), stdin);
+                maBacSi[strcspn(maBacSi, "\n")] = 0;
+                
+                printf("Nhap chan doan: ");
+                fgets(chanDoan, sizeof(chanDoan), stdin);
+                chanDoan[strcspn(chanDoan, "\n")] = 0;
+                
+                printf("Nhap phuong phap dieu tri: ");
+                fgets(phuongPhapDieuTri, sizeof(phuongPhapDieuTri), stdin);
+                phuongPhapDieuTri[strcspn(phuongPhapDieuTri, "\n")] = 0;
+                
+                // Cập nhật kết quả
+                int ketQua = capNhatKetQuaKham(&heThong, maLanKham, maBacSi, chanDoan, phuongPhapDieuTri);
+                if (ketQua > 0) {
+                    printf("Cap nhat ket qua kham thanh cong\n");
+                } else {
+                    printf("Loi khi cap nhat ket qua kham. Ma loi: %d\n", ketQua);
+                }
+                break;
+            }
+            case 5: {
+                // Tìm kiếm bệnh nhân
+                int loaiTimKiem;
+                printf("\n--- TIM KIEM BENH NHAN ---\n");
+                printf("1. Tim theo ma dinh danh\n");
+                printf("2. Tim theo so dien thoai\n");
+                printf("3. Tim theo so BHYT\n");
+                printf("4. Tim theo ten\n");
+                printf("Nhap lua chon: ");
+                scanf("%d", &loaiTimKiem);
+                getchar();
+                
+                char giaTri[100];
+                printf("Nhap gia tri tim kiem: ");
+                fgets(giaTri, sizeof(giaTri), stdin);
+                giaTri[strcspn(giaTri, "\n")] = 0;
+                
+                BenhNhan* benhNhan = NULL;
+                switch (loaiTimKiem) {
+                    case 1:
+                        benhNhan = timKiemBenhNhan(&heThong, "maDinhDanh", giaTri);
+                        if (benhNhan != NULL) {
+                            hienThiThongTinBenhNhan(benhNhan);
+                        } else {
+                            printf("Khong tim thay benh nhan co ma dinh danh: %s\n", giaTri);
+                        }
+                        break;
+                    case 2:
+                        benhNhan = timKiemBenhNhan(&heThong, "soDienThoai", giaTri);
+                        if (benhNhan != NULL) {
+                            hienThiThongTinBenhNhan(benhNhan);
+                        } else {
+                            printf("Khong tim thay benh nhan co so dien thoai: %s\n", giaTri);
+                        }
+                        break;
+                    case 3:
+                        benhNhan = timKiemBenhNhan(&heThong, "bhyt", giaTri);
+                        if (benhNhan != NULL) {
+                            hienThiThongTinBenhNhan(benhNhan);
+                        } else {
+                            printf("Khong tim thay benh nhan co so BHYT: %s\n", giaTri);
+                        }
+                        break;
+                    case 4: {
+                        int soLuongKetQua = 0;
+                        NodeBenhNhan* danhSach = timDanhSachBenhNhanTheoTen(&(heThong.dsBenhNhan), giaTri, &soLuongKetQua);
+                        
+                        if (soLuongKetQua > 0) {
+                            printf("Tim thay %d benh nhan:\n", soLuongKetQua);
+                            NodeBenhNhan* current = danhSach;
+                            int stt = 1;
+                            
+                            while (current != NULL) {
+                                printf("\n--- Benh nhan %d ---\n", stt++);
+                                hienThiThongTinBenhNhan(&(current->benhNhan));
+                                current = current->next;
+                            }
+                            
+                            // Giải phóng danh sách
+                            while (danhSach != NULL) {
+                                NodeBenhNhan* temp = danhSach;
+                                danhSach = danhSach->next;
+                                free(temp);
+                            }
+                        } else {
+                            printf("Khong tim thay benh nhan co ten chua: %s\n", giaTri);
+                        }
+                        break;
+                    }
+                    default:
+                        printf("Lua chon khong hop le\n");
+                }
+                break;
+            }
+            case 6: {
+                // Xem lịch sử khám
+                int maDinhDanh;
+                printf("\n--- XEM LICH SU KHAM ---\n");
+                printf("Nhap ma dinh danh benh nhan: ");
+                scanf("%d", &maDinhDanh);
+                getchar();
+                
+                // Kiểm tra bệnh nhân tồn tại
+                BenhNhan* benhNhan = timBenhNhanTheoMa(&(heThong.dsBenhNhan), maDinhDanh);
+                if (benhNhan == NULL) {
+                    printf("Benh nhan khong ton tai\n");
+                    break;
+                }
+                
+                // Hiển thị thông tin bệnh nhân
+                hienThiThongTinBenhNhan(benhNhan);
+                
+                // Lấy lịch sử khám
+                int soLuongKetQua = 0;
+                NodeLanKhamLS* danhSach = xemLichSuKham(&heThong, maDinhDanh, &soLuongKetQua);
+                
+                if (soLuongKetQua > 0) {
+                    printf("\nLich su kham (%d lan):\n", soLuongKetQua);
+                    NodeLanKhamLS* current = danhSach;
+                    int stt = 1;
+                    
+                    while (current != NULL) {
+                        printf("\n--- Lan kham %d ---\n", stt++);
+                        hienThiThongTinLanKham(&(current->lanKham), &heThong);
+                        current = current->next;
+                    }
+                    
+                    // Giải phóng danh sách
+                    while (danhSach != NULL) {
+                        NodeLanKhamLS* temp = danhSach;
+                        danhSach = danhSach->next;
+                        free(temp);
+                    }
+                } else {
+                    printf("Benh nhan chua co lich su kham\n");
+                }
+                break;
+            }
+            case 7: {
+                // Xem danh sách chờ
+                printf("\n--- DANH SACH CHO KHAM ---\n");
+                hienThiTrangThaiHangDoi(&(heThong.hangDoiKham), &heThong);
+                break;
+            }
+            case 8: {
+                // Xuất dữ liệu ra file CSV
+                int loaiXuat;
+                printf("\n--- XUAT DU LIEU RA FILE CSV ---\n");
+                printf("1. Xuat danh sach benh nhan\n");
+                printf("2. Xuat danh sach lan kham\n");
+                printf("3. Xuat danh sach cho\n");
+                printf("4. Xuat thong ke\n");
+                printf("Nhap lua chon: ");
+                scanf("%d", &loaiXuat);
+                getchar();
+                
+                char tenFile[100];
+                printf("Nhap ten file CSV: ");
+                fgets(tenFile, sizeof(tenFile), stdin);
+                tenFile[strcspn(tenFile, "\n")] = 0;
+                
+                int ketQua = 0;
+                switch (loaiXuat) {
+                    case 1:
+                        ketQua = xuatBenhNhanRaCSV(&(heThong.dsBenhNhan), tenFile);
+                        printf("Da xuat %d benh nhan ra file CSV\n", ketQua);
+                        break;
+                    case 2:
+                        ketQua = xuatLanKhamRaCSV(&(heThong.dsLanKham), tenFile);
+                        printf("Da xuat %d lan kham ra file CSV\n", ketQua);
+                        break;
+                    case 3:
+                        ketQua = xuatHangDoiRaCSV(&(heThong.hangDoiKham), &(heThong.dsBenhNhan), tenFile);
+                        printf("Da xuat %d benh nhan trong hang doi ra file CSV\n", ketQua);
+                        break;
+                    case 4:
+                        ketQua = xuatThongKeRaCSV(&heThong, tenFile);
+                        if (ketQua > 0) {
+                            printf("Da xuat thong ke ra file CSV thanh cong\n");
+                        } else {
+                            printf("Loi khi xuat thong ke ra file CSV\n");
+                        }
+                        break;
+                    default:
+                        printf("Lua chon khong hop le\n");
+                }
+                break;
+            }
+            case 0:
+                printf("Thoat chuong trinh\n");
+                break;
+            default:
+                printf("Lua chon khong hop le\n");
+        }
+    } while (luaChon != 0);
+    
+    giaiPhongHeThong(&heThong);
+    
+    return 0;
+}
