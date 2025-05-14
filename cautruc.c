@@ -45,21 +45,7 @@ typedef enum {
     HEN_KHONG_DEN
 } TrangThaiLichHen;
 
-// --- Enum Vai Tro Nguoi Dung ---
-typedef enum {
-    VAI_TRO_QUAN_TRI,
-    VAI_TRO_BAC_SI,
-    VAI_TRO_LE_TAN,
-    VAI_TRO_DUOC_SI, // Neu co quan ly thuoc chi tiet
-    VAI_TRO_KHAC
-} VaiTroNguoiDung;
 
-// --- Enum Trang Thai Tai Khoan ---
-typedef enum {
-    TK_HOAT_DONG,
-    TK_KHOA,
-    TK_CHUA_KICH_HOAT
-} TrangThaiTaiKhoan;
 
 // === Cau truc Khoa/Phong Kham ===
 typedef struct {
@@ -111,6 +97,7 @@ typedef struct {
     time_t gioDangKyThanhCong;  // Thoi diem dang ky thanh cong lan kham nay
     int coDonThuoc;             // Co bao co ke don thuoc khong (1=co, 0=khong)
     TrangThaiLanKham trangThai; // TRUONG MOI: Trang thai hien tai cua lan kham
+    int maDonThuocChiTiet; //Don thuoc cho lan kham, neu khong co don thuoc thi maDonThuoc = NULL
 } LanKham;
 
 // === Cau truc Lich Hen ===
@@ -129,10 +116,7 @@ typedef struct {
 typedef struct {
     char maThuoc[30];           // Ma duy nhat cua thuoc
     char tenThuoc[150];         // Ten thuong mai hoac ten goc
-    char hoatChat[200];         // Ten hoat chat chinh
-    char donViTinh[20];         // Don vi tinh (vien, ong, lo, goi...)
-    char hamLuong[50];          // Ham luong (vi du: 500mg, 10ml)
-    // Co the them: Gia, so luong ton kho (neu quan ly kho), nuoc san xuat...
+
 } Thuoc;
 
 // === Cau truc Chi Tiet Don Thuoc ===
@@ -146,15 +130,7 @@ typedef struct {
     char cachDung[100];         // Cach dung (vi du: Uong sau an no)
 } DonThuocChiTiet;
 
-// === Cau truc Tai Khoan Nguoi Dung ===
-typedef struct {
-    char tenDangNhap[50];       // Ten de login vao he thong (duy nhat)
-    char matKhauMaHoa[100];     // Mat khau (Luu y: PHAI LUU DANG MA HOA, khong luu truc tiep)
-    char hoTenNguoiDung[100];    // Ten day du cua nguoi dung tai khoan
-    VaiTroNguoiDung vaiTro;     // Vai tro cua nguoi dung trong he thong
-    char maBacSi[20];           // Ma bac si (neu vai tro la bac si, de lien ket) - Co the de trong cho vai tro khac
-    TrangThaiTaiKhoan trangThai;// Trang thai cua tai khoan
-} TaiKhoan;
+
 
 
 #endif // QLPK_STRUCTS_FULL_H
