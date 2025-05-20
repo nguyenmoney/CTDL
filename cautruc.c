@@ -3,13 +3,21 @@
 
 #include <time.h> // Can cho kieu time_t
 
+// Dinh nghia do dai toi da cho cac ma ID dang chuoi
+#define MAX_LEN_MA_DINH_DANH_BN 20 // Do dai cho Ma Dinh Danh Benh Nhan
+#define MAX_LEN_MA_BAC_SI 20       // Do dai cho Ma Bac Si
+#define MAX_LEN_MA_KHOA_PHONG 20   // Do dai cho Ma Khoa Phong
+#define MAX_LEN_MA_THUOC 30        // Do dai cho Ma Thuoc
+// Neu maLanKham, maDonThuoc cung can la chuoi thi them define tuong ung
+// Hien tai, maLanKham va maDonThuoc (trong LanKham) van la int
+
 // Enum Trang Thai Lan Kham
 typedef enum {
-    LK_DANG_CHO,         // Mới đăng ký, đang trong hàng đợi chờ gọi
-    LK_DANG_KHAM,        // Đã được gọi vào, đang được bác sĩ khám
-    LK_DA_HOAN_THANH,    // Đã khám xong, cập nhật xong thông tin
-    LK_DA_HUY,           // Bệnh nhân hoặc hệ thống hủy lượt khám/lịch hẹn
-    LK_DA_LO             // Lượt đăng ký của ngày trước nhưng không khám (missed)
+    LK_DANG_CHO,
+    LK_DANG_KHAM,
+    LK_DA_HOAN_THANH,
+    LK_DA_HUY,
+    LK_DA_LO
 } TrangThaiLanKham;
 
 // --- Cau truc Date ---
@@ -21,12 +29,12 @@ typedef struct {
 
 // --- Enum Muc Do Uu Tien ---
 typedef enum {
-    CAP_CUU = 0,    // Muc uu tien cao nhat
+    CAP_CUU = 0,
     KHAN_CAP,
     THONG_THUONG,
     TAI_KHAM,
     UU_TIEN_KHAC,
-    SO_MUC_UU_TIEN // De de quan ly so luong muc uu tien
+    SO_MUC_UU_TIEN
 } MucDoUuTien;
 
 // --- Enum Gioi Tinh ---
@@ -45,92 +53,87 @@ typedef enum {
     HEN_KHONG_DEN
 } TrangThaiLichHen;
 
-
-
 // === Cau truc Khoa/Phong Kham ===
 typedef struct {
-    char maKhoaPhong[20];       // Ma duy nhat cua Khoa/Phong
-    char tenKhoaPhong[100];     // Ten Khoa/Phong
-    char viTri[100];            // Vi tri (vi du: Tang 2, Khu A)
-    char moTa[200];             // Mo ta them ve Khoa/Phong
+    char maKhoaPhong[MAX_LEN_MA_KHOA_PHONG]; // Su dung define
+    char tenKhoaPhong[100];
+    char viTri[100];
+    char moTa[200];
 } KhoaPhong;
 
 // === Cau truc Bac Si ===
 typedef struct {
-    char maBacSi[20];           // Ma so duy nhat cua bac si
-    char tenBacSi[100];         // Ho va ten bac si
-    char chuyenKhoa[100];       // Chuyen khoa chinh
-    char soDienThoai[15];       // So dien thoai lien he
-    char email[100];            // Email
-    char maKhoaPhong[20];       // Ma Khoa/Phong bac si lam viec (Lien ket voi KhoaPhong)
-    // Co the them: Bang cap, lich lam viec co dinh,...
+    char maBacSi[MAX_LEN_MA_BAC_SI]; // Su dung define
+    char tenBacSi[100];
+    char chuyenKhoa[100];
+    char soDienThoai[15];
+    char email[100];
+    char maKhoaPhong[MAX_LEN_MA_KHOA_PHONG]; // Su dung define
 } BacSi;
 
 // === Cau truc Benh Nhan ===
 typedef struct {
-    int maDinhDanh;             // Ma so duy nhat
-    char bhyt[16];              // Ma Bao hiem y te
-    char soDienThoai[15];       // So dien thoai
-    char ten[100];              // Ho va Ten
-    Date ngaySinh;              // Ngay sinh
-    int tuoi;                   // Tuoi (luu tru truc tiep)
-    GioiTinh gioiTinh;          // Gioi tinh (them vao cho day du)
-    char diaChi[200];           // Dia chi (them vao cho day du)
-    char tieuSuBenhLy[1000];    // Tom tat tieu su benh ly
-    time_t ngayTaoHoSo;         // Ngay tao ho so trong he thong
+    char maDinhDanh[MAX_LEN_MA_DINH_DANH_BN]; // Su dung define, da la char[]
+    char bhyt[16];
+    char soDienThoai[15];
+    char ten[100];
+    Date ngaySinh;
+    int tuoi;
+    GioiTinh gioiTinh;
+    char diaChi[200];
+    char tieuSuBenhLy[1000];
+    time_t ngayTaoHoSo;
 } BenhNhan;
 
 // === Cau truc Lan Kham ===
 typedef struct {
-    int maLanKham;              // Ma so duy nhat cho lan kham nay
-    int maDinhDanh;             // Lien ket den BenhNhan
-    char maBacSi[20];           // Lien ket den BacSi (KHONG LUU TEN O DAY)
-    char maKhoaPhong[20];       // Noi thuc hien kham (Lien ket voi KhoaPhong, tuy chon)
-    time_t ngayGioKham;         // Ngay va gio thuc te kham benh
-    char lyDoKham[500];         // Ly do den kham
-    char chanDoan[500];         // Chan doan cua bac si
-    char phuongPhapDieuTri[1000]; // Phuong phap dieu tri, thuoc men...
-    char ghiChuBacSi[500];      // Ghi chu them
-    Date ngayTaiKham;           // Ngay hen tai kham
-    int coLichTaiKham;          // Co bao co lich tai kham khong (1 = co, 0 = khong)
-    MucDoUuTien mucDoUuTien;    // Muc do uu tien cua lan kham nay
-    time_t gioDangKyThanhCong;  // Thoi diem dang ky thanh cong lan kham nay
-    int coDonThuoc;             // Co bao co ke don thuoc khong (1=co, 0=khong)
-    TrangThaiLanKham trangThai; // TRUONG MOI: Trang thai hien tai cua lan kham
-    int maDonThuocChiTiet; //Don thuoc cho lan kham, neu khong co don thuoc thi maDonThuoc = NULL
+    int maLanKham;                            // Ma duy nhat cho lan kham (int)
+    char maDinhDanh[MAX_LEN_MA_DINH_DANH_BN];
+    char tenBenhNhan[100];
+    char maBacSi[MAX_LEN_MA_BAC_SI];          // Su dung define
+    char maKhoaPhong[MAX_LEN_MA_KHOA_PHONG];  // Su dung define
+    time_t ngayGioKham;
+    char lyDoKham[500];
+    char chanDoan[500];
+    char phuongPhapDieuTri[1000];
+    char ghiChuBacSi[500];
+    Date ngayTaiKham;
+    int coLichTaiKham;
+    MucDoUuTien mucDoUuTien;
+    time_t gioDangKyThanhCong;
+    int coDonThuoc;
+    TrangThaiLanKham trangThai;
+    int maDonThuocChiTiet; // <<<< SUA: Doi ten tu maDonThuocChiTiet thanh maDonThuoc (de nhat quan voi DonThuocChiTiet)
+    // Ma nay se la khoa chinh cua mot Don Thuoc (gom nhieu chi tiet thuoc)
+    // Co the gan bang maLanKham neu moi lan kham chi co 1 don.
 } LanKham;
 
 // === Cau truc Lich Hen ===
 typedef struct {
-    int maLichHen;              // Ma duy nhat cua lich hen
-    int maDinhDanh;             // Lien ket den BenhNhan
-    char maBacSi[20];           // Lien ket den BacSi (neu hen dich danh)
-    char maKhoaPhong[20];       // Lien ket den KhoaPhong (neu hen theo khoa)
-    time_t ngayGioHen;          // Thoi gian duoc hen
-    char lyDoHen[200];          // Ly do hen (kham moi, tai kham...)
-    TrangThaiLichHen trangThai; // Trang thai cua lich hen
-    char ghiChu[300];           // Ghi chu them cho lich hen
+    int maLichHen;
+    char maDinhDanh[MAX_LEN_MA_DINH_DANH_BN]; // <<<< SUA: Doi ten tu maDinhDanh thanh maDinhDanhBN, su dung define
+    char maBacSi[MAX_LEN_MA_BAC_SI];          // Su dung define
+    char maKhoaPhong[MAX_LEN_MA_KHOA_PHONG];  // Su dung define
+    time_t ngayGioHen;
+    char lyDoHen[200];
+    TrangThaiLichHen trangThai;
+    char ghiChu[300];
 } LichHen;
 
 // === Cau truc Thuoc ===
 typedef struct {
-    char maThuoc[30];           // Ma duy nhat cua thuoc
-    char tenThuoc[150];         // Ten thuong mai hoac ten goc
-
+    char maThuoc[MAX_LEN_MA_THUOC]; // Su dung define
+    char tenThuoc[150];
 } Thuoc;
 
 // === Cau truc Chi Tiet Don Thuoc ===
-// Moi dong nay la mot loai thuoc duoc ke trong mot lan kham
 typedef struct {
-    int maDonThuocChiTiet;      // Ma duy nhat cho dong ke thuoc nay
-    int maLanKham;              // Lien ket den Lan Kham ma don thuoc nay duoc ke
-    char maThuoc[30];           // Lien ket den Thuoc duoc ke
-    int soLuong;                // So luong thuoc duoc ke (theo don vi tinh)
-    char lieuDung[100];         // Lieu dung (vi du: Ngay 2 lan, moi lan 1 vien)
-    char cachDung[100];         // Cach dung (vi du: Uong sau an no)
+    // int maDonThuocChiTiet;  // Co the bo qua truong nay neu cap (maDonThuoc, maThuoc) la duy nhat
+    int maDonThuocChiTiet;             // <<<< SUA: Lien ket den LanKham.maDonThuoc
+    char maThuoc[MAX_LEN_MA_THUOC]; // Su dung define, lien ket den Thuoc.maThuoc
+    int soLuong;
+    char lieuDung[100];
+    char cachDung[100];
 } DonThuocChiTiet;
-
-
-
 
 #endif // QLPK_STRUCTS_FULL_H
